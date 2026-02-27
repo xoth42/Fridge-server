@@ -4,18 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import random
 import sys
 import urllib.error
 import urllib.request
 
 
 def build_payload() -> str:
-    samples = [
-        random.uniform(37.5, 39.0),
-        random.uniform(41.0, 43.0),
-        random.uniform(44.0, 46.0),
-    ]
+    # Values are deterministic so alert-pipeline tests are reproducible.
+    # sensor-1: 38.0  – below the FridgeSyntheticMetricHigh threshold (42)
+    # sensor-2: 45.0  – above threshold, expected to trigger alert
+    # sensor-3: 50.0  – above threshold, expected to trigger alert
+    samples = [38.0, 45.0, 50.0]
     lines = [
         "# TYPE fridgetestmetric gauge",
     ]

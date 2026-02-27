@@ -16,6 +16,7 @@
     ]
   },
   "editable": true,
+  "description": "Phase-1 fridge monitoring dashboard. Panels reference datasource uid P1809F7CD0C75ACF3 — must match uid in config/grafana/provisioning/datasources/prometheus.yml.",
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
