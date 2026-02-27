@@ -1,1 +1,13 @@
+# Python runtime artifacts
+__pycache__/
+*.pyc
+
+# Local state/runtime dirs (if added for host mounts later)
+data/
+prometheus-data/
+grafana-data/
+alertmanager-data/
+
+# OS/editor noise
 .DS_Store
+*.swp

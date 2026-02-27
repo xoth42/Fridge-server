@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker sanity check
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Start monitoring stack
+        run: |
+          # Bring up all core services in the background.
+          docker compose up -d
+
+      - name: Wait for Prometheus and Grafana
+        run: |
+          # Poll health/readiness endpoints to emulate a headless server startup check.
+          for i in {1..30}; do
+            PROM_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9090/-/ready || true)
+            GRAF_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || true)
+            if [ "$PROM_OK" = "200" ] && [ "$GRAF_OK" = "200" ]; then
+              echo "Prometheus and Grafana are ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for services" >&2
+          docker compose ps
+          exit 1
+
+      - name: Push synthetic fridge metrics
+        run: |
+          python3 testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
+
+      - name: Verify Prometheus query API returns metric
+        run: |
+          RESPONSE=$(curl -sS 'http://localhost:9090/api/v1/query?query=fridgetestmetric')
+          python3 - <<'PY' "$RESPONSE"
+import json, sys
+resp = json.loads(sys.argv[1])
+assert resp.get("status") == "success", resp
+results = resp.get("data", {}).get("result", [])
+assert results, f"Expected non-empty result, got: {resp}"
+print("Prometheus query returned synthetic metric")
+PY
+
+      - name: Verify Grafana provisioning
+        run: |
+          AUTH='admin:admin'
+          DS=$(curl -sS -u "$AUTH" http://localhost:3000/api/datasources/name/Prometheus)
+          python3 - <<'PY' "$DS"
+import json, sys
+obj = json.loads(sys.argv[1])
+assert obj.get("name") == "Prometheus", obj
+print("Grafana datasource exists")
+PY
+
+          DASHES=$(curl -sS -u "$AUTH" 'http://localhost:3000/api/search?query=Fridge%20Test')
+          python3 - <<'PY' "$DASHES"
+import json, sys
+arr = json.loads(sys.argv[1])
+assert any(d.get("title") == "Fridge Test" for d in arr), arr
+print("Grafana dashboard is provisioned")
+PY
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down

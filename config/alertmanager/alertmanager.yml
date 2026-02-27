@@ -1,0 +1,11 @@
+route:
+  # Single default route in phase 1: all alerts go to one local receiver.
+  receiver: log-only
+  group_by: ["alertname", "fridge"]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  # Intentionally empty receiver for local smoke testing.
+  - name: log-only
