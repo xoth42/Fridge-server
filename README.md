@@ -27,9 +27,10 @@ python3 testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
 
 Then open Grafana:
 - http://localhost:3000
-- Login: `admin` / `admin`
+- Login (local/dev **only**): `admin` / `admin`
 - Open dashboard: **Fridge Test**
 
+**Security note:** The `admin` / `admin` credentials are provided **only** for local development and CI smoke tests. Do **not** use these credentials in any non-dev deployment or on a network-accessible host. For any non-dev environment, override the Grafana admin password (for example by setting `GF_SECURITY_ADMIN_PASSWORD` via environment variables or a Docker Compose override file) before exposing port 3000.
 ## What gets provisioned
 
 - Prometheus scrape targets:
