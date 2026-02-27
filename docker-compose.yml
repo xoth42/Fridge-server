@@ -1,0 +1,64 @@
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: fridge-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      # Prometheus server config + alert rules for phase 1 monitoring.
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - fridge-monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: fridge-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --log.level=info
+    volumes:
+      # Keep Alertmanager config minimal and local.
+      - ./config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    networks:
+      - fridge-monitoring
+
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    container_name: fridge-pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - fridge-monitoring
+
+  grafana:
+    image: grafana/grafana:10.4.5
+    container_name: fridge-grafana
+    environment:
+      # Default dev/CI credentials are admin/admin.
+      # Override these via env vars for any shared or production deployment.
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+    volumes:
+      # Provision datasource + dashboard on startup.
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - fridge-monitoring
+
+networks:
+  fridge-monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:

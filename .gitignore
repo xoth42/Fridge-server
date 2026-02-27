@@ -1,1 +1,17 @@
+# Python runtime artifacts
+__pycache__/
+*.pyc
+
+# Local state/runtime dirs (if added for host mounts later)
+data/
+prometheus-data/
+grafana-data/
+alertmanager-data/
+
+# Environment overrides: track the baseline .env in git, but ignore
+# any local modifications (so changed creds don't spam diffs).
+.env
+
+# OS/editor noise
 .DS_Store
+*.swp
