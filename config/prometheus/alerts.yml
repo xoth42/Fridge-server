@@ -1,0 +1,11 @@
+groups:
+  - name: fridge-test-alerts
+    rules:
+      - alert: FridgeSyntheticMetricHigh
+        expr: fridgetestmetric > 42
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Synthetic fridge metric above threshold"
+          description: "fridgetestmetric is {{ $value }} for {{ $labels.fridge }}"
