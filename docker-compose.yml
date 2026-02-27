@@ -10,6 +10,7 @@ services:
       # Prometheus server config + alert rules for phase 1 monitoring.
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
     ports:
       - "9090:9090"
     networks:
@@ -43,8 +44,8 @@ services:
     environment:
       # Default dev/CI credentials are admin/admin.
       # Override these via env vars for any shared or production deployment.
-      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
     volumes:
       # Provision datasource + dashboard on startup.
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -58,3 +59,6 @@ services:
 networks:
   fridge-monitoring:
     driver: bridge
+
+volumes:
+  prometheus-data:
