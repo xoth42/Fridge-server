@@ -2,9 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, codex-init]
   pull_request:
-    branches: [main, codex-init]
 
 jobs:
   integration:
