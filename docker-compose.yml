@@ -41,10 +41,10 @@ services:
     image: grafana/grafana:10.4.5
     container_name: fridge-grafana
     environment:
-      # Admin credentials are provided via environment variables (e.g. .env file).
-      # These MUST be changed for any shared or production deployment.
-      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      # Default dev/CI credentials are admin/admin.
+      # Override these via env vars for any shared or production deployment.
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
     volumes:
       # Provision datasource + dashboard on startup.
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
