@@ -2,9 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
   integration:
@@ -24,14 +22,15 @@ jobs:
           # Bring up all core services in the background.
           docker compose up -d
 
-      - name: Wait for Prometheus and Grafana
+      - name: Wait for Prometheus, Grafana and Pushgateway
         run: |
-          # Poll health/readiness endpoints to emulate a headless server startup check.
+          # Poll readiness endpoints for all three services before running tests.
           for i in {1..30}; do
             PROM_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9090/-/ready || true)
             GRAF_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || true)
-            if [ "$PROM_OK" = "200" ] && [ "$GRAF_OK" = "200" ]; then
-              echo "Prometheus and Grafana are ready"
+            PUSH_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9091/-/healthy || true)
+            if [ "$PROM_OK" = "200" ] && [ "$GRAF_OK" = "200" ] && [ "$PUSH_OK" = "200" ]; then
+              echo "Prometheus, Grafana and Pushgateway are ready"
               exit 0
             fi
             sleep 2
@@ -43,6 +42,12 @@ jobs:
       - name: Push synthetic fridge metrics
         run: |
           python3 testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
+
+      - name: Wait for Prometheus scrape
+        run: |
+          # Prometheus scrapes every 15s; sleep 16s to ensure the just-pushed
+          # metrics are committed to the TSDB before querying.
+          sleep 16
 
       - name: Verify Prometheus query API returns metric
         run: |

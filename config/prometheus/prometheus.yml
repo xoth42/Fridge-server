@@ -13,6 +13,9 @@ alerting:
 
 scrape_configs:
   - job_name: "pushgateway"
+    # honor_labels preserves the job/instance labels pushed via Pushgateway
+    # instead of overwriting them with Prometheus's own labels.
+    honor_labels: true
     static_configs:
       - targets: ["pushgateway:9091"]
 

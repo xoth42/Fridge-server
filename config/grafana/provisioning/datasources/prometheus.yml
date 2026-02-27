@@ -2,6 +2,9 @@ apiVersion: 1
 
 datasources:
   - name: Prometheus
+    # uid is hardcoded and must match the "uid" field in every panel of
+    # config/grafana/provisioning/dashboards/fridge-test-dashboard.json.
+    # If you change this value, update the dashboard JSON to match.
     uid: P1809F7CD0C75ACF3
     type: prometheus
     access: proxy
