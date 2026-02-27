@@ -52,33 +52,16 @@ jobs:
       - name: Verify Prometheus query API returns metric
         run: |
           RESPONSE=$(curl -sS 'http://localhost:9090/api/v1/query?query=fridgetestmetric')
-          python3 - <<'PY' "$RESPONSE"
-import json, sys
-resp = json.loads(sys.argv[1])
-assert resp.get("status") == "success", resp
-results = resp.get("data", {}).get("result", [])
-assert results, f"Expected non-empty result, got: {resp}"
-print("Prometheus query returned synthetic metric")
-PY
+          python3 testdata/check_prometheus_metric.py "$RESPONSE"
 
       - name: Verify Grafana provisioning
         run: |
           AUTH='admin:admin'
           DS=$(curl -sS -u "$AUTH" http://localhost:3000/api/datasources/name/Prometheus)
-          python3 - <<'PY' "$DS"
-import json, sys
-obj = json.loads(sys.argv[1])
-assert obj.get("name") == "Prometheus", obj
-print("Grafana datasource exists")
-PY
+          python3 testdata/check_grafana_datasource.py "$DS"
 
           DASHES=$(curl -sS -u "$AUTH" 'http://localhost:3000/api/search?query=Fridge%20Test')
-          python3 - <<'PY' "$DASHES"
-import json, sys
-arr = json.loads(sys.argv[1])
-assert any(d.get("title") == "Fridge Test" for d in arr), arr
-print("Grafana dashboard is provisioned")
-PY
+          python3 testdata/check_grafana_dashboard.py "$DASHES"
 
       - name: Tear down stack
         if: always()
