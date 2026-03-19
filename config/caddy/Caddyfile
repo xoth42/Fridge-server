@@ -1,0 +1,31 @@
+# Caddy reverse proxy for Fridge Monitor Grafana
+#
+# Caddy automatically obtains and renews a Let's Encrypt TLS certificate
+# for {$DOMAIN}. Requires:
+#   - Port 80 and 443 open on the host firewall
+#   - DNS A record for {$DOMAIN} pointing at this server's public IP
+#     (ddclient handles the dynamic DNS update automatically)
+#
+# {$DOMAIN} is set from the DOMAIN env var in docker-compose.yml.
+
+{$DOMAIN} {
+    reverse_proxy grafana:3000
+
+    header {
+        # HSTS: instruct browsers to always use HTTPS for this domain.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+
+        # Remove X-Frame-Options so Grafana can control its own embedding policy.
+        # GF_SECURITY_ALLOW_EMBEDDING=true in docker-compose allows iframe embeds
+        # for WordPress panel integration.
+        -X-Frame-Options
+    }
+
+    # Access log — Caddy writes to stdout which docker logs captures.
+    log {
+        output stdout
+        format json
+    }
+}

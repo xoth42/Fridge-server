@@ -12,51 +12,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Docker sanity check
+      - name: Install system dependencies
         run: |
-          docker --version
-          docker compose version
+          sudo apt-get update -qq
+          # gettext provides envsubst, which install.sh uses to generate configs.
+          sudo apt-get install -y gettext
 
-      - name: Start monitoring stack
+      - name: Create CI .env
+        # Sets the minimum required variables. SMTP and Slack credentials are
+        # intentionally empty — alertmanager will start but silently fail delivery,
+        # which is acceptable for smoke-testing the stack.
         run: |
-          # Bring up all core services in the background.
-          docker compose up -d
+          echo 'GF_ADMIN_USER=admin'                              > .env
+          echo 'GF_ADMIN_PASSWORD=ci-admin-password'             >> .env
+          echo 'DOMAIN=localhost'                                 >> .env
+          echo 'GRAFANA_PUBLIC_URL=http://localhost:3000'         >> .env
+          echo 'PROMETHEUS_RETENTION_TIME=15d'                   >> .env
+          echo 'PROMETHEUS_RETENTION_SIZE=2GB'                   >> .env
+          echo 'SMTP_HOST=smtp.sendgrid.net'                     >> .env
+          echo 'SMTP_PORT=587'                                    >> .env
+          echo 'SMTP_USER=apikey'                                 >> .env
+          echo 'SMTP_PASSWORD='                                   >> .env
+          echo 'SMTP_FROM=ci@localhost'                           >> .env
+          echo 'ALERT_EMAIL_TO=ci@example.com'                   >> .env
+          echo 'SLACK_WEBHOOK_URL=https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/placeholder' >> .env
+          echo 'SLACK_CHANNEL=#fridge-alerts'                    >> .env
+          echo 'ALLOWED_PUSH_CIDR='                              >> .env
+          echo 'WATCHTOWER_NOTIFY_EMAIL='                        >> .env
 
-      - name: Wait for Prometheus, Grafana and Pushgateway
+      - name: Run install script
+        # CI=true causes install.sh to skip: firewall, ddclient config,
+        # lab user creation, and TLS. Only core services are started.
         run: |
-          # Poll readiness endpoints for all three services before running tests.
-          for i in {1..30}; do
-            PROM_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9090/-/ready || true)
-            GRAF_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || true)
-            PUSH_OK=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9091/-/healthy || true)
-            if [ "$PROM_OK" = "200" ] && [ "$GRAF_OK" = "200" ] && [ "$PUSH_OK" = "200" ]; then
-              echo "Prometheus, Grafana and Pushgateway are ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Timed out waiting for services" >&2
-          docker compose ps
-          exit 1
+          chmod +x install.sh
+          ./install.sh
 
       - name: Push synthetic fridge metrics
-        run: |
-          python3 testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
+        run: python3 testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
 
-      - name: Wait for Prometheus scrape
-        run: |
-          # Prometheus scrapes every 15s; sleep 16s to ensure the just-pushed
-          # metrics are committed to the TSDB before querying.
-          sleep 16
+      - name: Wait for Prometheus scrape cycle
+        # Prometheus scrape interval is 15s; 16s guarantees at least one cycle.
+        run: sleep 16
 
-      - name: Verify Prometheus query API returns metric
+      - name: Verify Prometheus has the metric
         run: |
           RESPONSE=$(curl -sS 'http://localhost:9090/api/v1/query?query=fridgetestmetric')
           python3 testdata/check_prometheus_metric.py "$RESPONSE"
 
       - name: Verify Grafana provisioning
         run: |
-          AUTH='admin:admin'
+          AUTH="admin:ci-admin-password"
           DS=$(curl -sS -u "$AUTH" http://localhost:3000/api/datasources/name/Prometheus)
           python3 testdata/check_grafana_datasource.py "$DS"
 

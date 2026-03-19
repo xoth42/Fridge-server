@@ -1,0 +1,27 @@
+# ddclient configuration — name.com Dynamic DNS
+# Generated from this template by install.sh (envsubst).
+# The generated ddclient.conf is gitignored; this template is version-controlled.
+#
+# name.com Dynamic DNS uses the DynDNS2 protocol at dynupdate.name.com.
+# To set up:
+#   1. In name.com dashboard → DNS → Dynamic DNS → enable for your domain
+#   2. Note the Dynamic DNS password (different from your account password)
+#   3. Set DDNS_USERNAME, DDNS_TOKEN, DDNS_HOSTNAME in .env
+
+# Check for IP change every 5 minutes.
+daemon=300
+
+# Log to syslog (visible via docker logs fridge-ddclient).
+syslog=yes
+
+# Use HTTPS to fetch current public IP.
+ssl=yes
+use=web, web=https://checkip.amazonaws.com
+
+# name.com DynDNS2 endpoint.
+protocol=dyndns2
+server=dynupdate.name.com
+
+login=${DDNS_USERNAME}
+password=${DDNS_TOKEN}
+${DDNS_HOSTNAME}

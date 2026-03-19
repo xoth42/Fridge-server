@@ -2,16 +2,28 @@
 __pycache__/
 *.pyc
 
-# Local state/runtime dirs (if added for host mounts later)
+# Docker-managed data volumes (never commit these)
 data/
 prometheus-data/
 grafana-data/
 alertmanager-data/
 
-# Environment overrides: track the baseline .env in git, but ignore
-# any local modifications (so changed creds don't spam diffs).
+# Environment file — contains secrets.
+# Copy .env.example → .env and fill in values. Never commit .env.
 .env
+
+# Generated configs from *.template files (created by install.sh).
+#
+# config/ddclient/ddclient.conf — not in git, generated on first install.sh run.
+# config/alertmanager/alertmanager.yml — IS tracked in git (log-only default).
+#   install.sh overwrites it locally with real credentials.
+#   Do NOT stage/commit it after running install.sh.
+#   To restore the committed default: git checkout config/alertmanager/alertmanager.yml
+config/ddclient/ddclient.conf
 
 # OS/editor noise
 .DS_Store
 *.swp
+
+Fridge-data-uploader
+
