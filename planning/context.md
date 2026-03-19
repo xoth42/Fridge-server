@@ -25,7 +25,7 @@ The stack runs correctly in CI. Has not been deployed to the actual server yet (
 
 ### Key .env values needed before deploy:
 - `GF_ADMIN_PASSWORD` — set a real password
-- `SMTP_PASSWORD` — SendGrid API key (user needs to sign up, verify zickers.us domain, generate key)
+- `SMTP_PASSWORD` — SendGrid API key (user needs to sign up, verify fridge.zickers.us domain, generate key)
 - `SLACK_WEBHOOK_URL` — user already has a Slack webhook (was configured before, needs cleanup)
 - `DDNS_USERNAME` / `DDNS_TOKEN` — name.com account creds for DynDNS
 - `ALLOWED_PUSH_CIDR` — college network CIDR (IT hasn't provided yet, leave empty for now)
@@ -34,7 +34,7 @@ The stack runs correctly in CI. Has not been deployed to the actual server yet (
 ## Architecture decisions summary
 
 - **Alerts**: Grafana unified alerting (UI) → Alertmanager (routing) → Slack + SendGrid email
-- **Reverse proxy**: Caddy (auto-TLS from Let's Encrypt for zickers.us)
+- **Reverse proxy**: Caddy (auto-TLS from Let's Encrypt for fridge.zickers.us)
 - **DynDNS**: ddclient → name.com API (domain will change when lab switches colleges)
 - **Email**: SendGrid SMTP relay, no separate mail container
 - **Grafana**: anonymous Viewer access enabled (for WordPress panel embedding); Editor lab user account
@@ -49,9 +49,19 @@ The stack runs correctly in CI. Has not been deployed to the actual server yet (
 - `config/ddclient/ddclient.conf` is gitignored; install.sh generates it from template
 - `.env` is gitignored
 
+## Current live status (2026-03-19)
+
+- `https://fridge.zickers.us:8443` — HTTPS working, valid Let's Encrypt cert ✓
+- Manny (Bluefors) and Dodo both pushing real data, visible in Grafana ✓
+- Sid not yet pointed at new server
+- Phase D (dashboards) can now begin with real data
+
 ## What to work on next
 
-**Phase B** is the immediate next step — wiring up real alert routing:
+**Phase D — Dashboards** is now unblocked (real data from Manny + Dodo is flowing).
+Start here before Phase B (alerts) since this is what the PI will see first.
+
+**Phase B** — alert infrastructure:
 1. Confirm SendGrid key is available in .env
 2. Add Grafana unified alerting contact points provisioning file
 3. Write a real fridge temperature alert rule in Grafana (e.g. CH6 MXC temp > 0.030 K)
@@ -81,9 +91,9 @@ The stack runs correctly in CI. Has not been deployed to the actual server yet (
 - `ALLOWED_PUSH_CIDR`: empty until IT provides the college network CIDR
 - Sid fridge config: blocked on channel layout data
 - Dodo (Oxford Instruments): data format unknown, deferred
-- zickers.us domain: will change when lab switches colleges in ~1 year
+- fridge.zickers.us domain: will change when lab switches colleges in ~1 year
 - Rotating IP: noted, not addressed yet (ddclient handles it for the server)
 
 ## User profile
 
-Physics lab (Wang Lab), setting up fridge monitoring. The PI will view Grafana dashboards — this is a key milestone. Lab has ~15 people. User has access to Slack workspace, name.com domain (zickers.us), WordPress lab website. Non-technical lab members need to manage alerts via Grafana UI.
+Physics lab (Wang Lab), setting up fridge monitoring. The PI will view Grafana dashboards — this is a key milestone. Lab has ~15 people. User has access to Slack workspace, name.com domain (fridge.zickers.us), WordPress lab website. Non-technical lab members need to manage alerts via Grafana UI.

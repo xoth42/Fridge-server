@@ -1,56 +1,108 @@
-# fridge-server (phase 1)
+# Fridge Monitor — Server Stack
 
-Minimal containerized monitoring stack for physics lab fridges.
+Monitoring stack for Wang Lab dilution refrigerators. Receives temperature and
+pressure metrics from fridge computers, stores them in Prometheus, and displays
+them in Grafana. Sends alerts via Slack and email.
 
-Phase 1 intentionally includes only:
-- Prometheus
-- Alertmanager
-- Pushgateway
-- Grafana
-- A tiny synthetic metric push script
+**Fridges:** Manny (Bluefors), Sid (Bluefors), Dodo (Oxford Instruments — pending)
 
-No custom web UI or reverse proxy is included yet.
+For detailed docs see [docs/](docs/).
 
-## Prerequisites
-
-- Docker
-- Docker Compose (`docker compose` plugin or `docker-compose` binary)
-- Python 3 (for test metric script)
+---
 
 ## Quickstart
 
 ```bash
-./install.sh
-docker compose up -d
-python3 testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
+cp .env.example .env
+nano .env          # set GF_ADMIN_PASSWORD at minimum; see comments for all options
+
+./install.sh       # pulls images, starts stack, runs health checks, prints URLs
 ```
 
-Then open Grafana:
-- http://localhost:3000
-- Login (local/dev **only**): `admin` / `admin`
-- Open dashboard: **Fridge Test**
+Grafana will be available at `http://localhost:3000` locally, or at
+`https://fridge.zickers.us` in production.
 
-**Security note:** The `admin` / `admin` credentials are provided **only** for local development and CI smoke tests. Do **not** use these credentials in any non-dev deployment or on a network-accessible host. For any non-dev environment, override the Grafana admin password (for example by setting `GF_SECURITY_ADMIN_PASSWORD` via environment variables or a Docker Compose override file) before exposing port 3000.
+**Fridge computers:** set `PUSHGATEWAY_URL=http://<server-ip>:9091` in each
+fridge's `server.env`.
 
-## What gets provisioned
+---
 
-- Prometheus scrape targets:
-  - `pushgateway:9091`
-  - `alertmanager:9093`
-- Prometheus alert rule:
-  - `FridgeSyntheticMetricHigh` when `fridgetestmetric > 42` for 15s
-- Alertmanager default route/receiver (`log-only`)
-- Grafana datasource:
-  - `Prometheus` -> `http://prometheus:9090`
-- Grafana dashboard:
-  - `Fridge Test`
+## Prerequisites
+
+- Docker Engine with Compose plugin (`docker compose version` must work)
+- `gettext` for `envsubst`: `apt install gettext` / `pacman -S gettext`
+- Ports 80, 443, and 9091 reachable from outside (see Port Forwarding below)
+
+---
+
+## Port Forwarding
+
+The stack requires three ports to be reachable from outside your router.
+Configure these as port forwarding rules on your router pointing at the server's
+local IP address.
+
+| Port | Protocol | Service | Who connects |
+|------|----------|---------|--------------|
+| 8443 | TCP | Caddy (Grafana HTTPS) | Public internet, lab members |
+| 9091 | TCP | Pushgateway (metric ingestion) | Fridge computers on college network |
+
+### How to set this up
+
+1. Find your server's **local IP**: `hostname -I | awk '{print $1}'`
+   — this is typically something like `192.168.1.x`. Assign it a static local IP
+   in your router's DHCP settings (usually called "DHCP reservation" or "static
+   lease") so it does not change.
+
+2. In your router admin panel (usually at `192.168.1.1` or `192.168.0.1`),
+   find **Port Forwarding** (sometimes under "NAT", "Virtual Server", or
+   "Applications & Gaming").
+
+3. Add three rules:
+   - External port 8443 → server local IP, internal port 8443, TCP
+   - External port 9091 → server local IP, internal port 9091, TCP
+
+4. Verify from outside the network (e.g. phone on mobile data):
+   ```bash
+   curl -I https://fridge.zickers.us        # should return 200
+   curl http://<your-public-ip>:9091/-/healthy  # should return OK
+   ```
+
+### Restricting Pushgateway access (recommended)
+
+Port 9091 only needs to be reachable from the college network where the fridge
+computers live. Once IT provides the college network CIDR, set it in `.env`:
+
+```bash
+ALLOWED_PUSH_CIDR=10.x.0.0/16    # fill in your college's range
+```
+
+Then re-run `./install.sh` — it will add a `ufw` firewall rule blocking all
+other IPs from port 9091. Port 80 and 443 remain open to all.
+
+---
+
+## Managing the stack
+
+```bash
+# Stop
+docker compose --profile production down
+
+# Restart a single service
+docker compose restart grafana
+
+# View logs
+docker compose logs -f grafana
+docker compose logs -f duckdns
+
+# Update config and apply (safe to re-run)
+nano .env
+./install.sh
+```
+
+---
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on all pushes and pull requests and does a full stack smoke test:
-1. Starts all containers with Docker Compose.
-2. Waits for Prometheus and Grafana readiness.
-3. Pushes synthetic fridge metrics to Pushgateway.
-4. Verifies Prometheus query API returns `fridgetestmetric`.
-5. Verifies Grafana datasource and dashboard are provisioned.
-6. Tears the stack down.
+GitHub Actions runs on every push: starts the stack, pushes test metrics,
+verifies Prometheus and Grafana, then tears down. See
+[.github/workflows/ci.yml](.github/workflows/ci.yml).

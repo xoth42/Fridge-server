@@ -6,7 +6,7 @@
 |---|---|
 | Reverse proxy | Caddy (auto-TLS via Let's Encrypt, native DOMAIN env var) |
 | HTTPS cert | Caddy handles automatically; no manual certbot step |
-| DynDNS | ddclient (linuxserver) with name.com dyndns2 endpoint |
+| DynDNS | linuxserver/duckdns container; name.com fridge.zickers.us is a CNAME → zickers-fridge.duckdns.org |
 | Email delivery | SendGrid SMTP relay (smtp.sendgrid.net:587, user=apikey, pass=API key) |
 | Mail containers | None — alertmanager + grafana connect directly to SendGrid SMTP |
 | Alert rule owner | Grafana unified alerting (UI create/toggle/silence); Alertmanager routes to Slack+email |
@@ -28,16 +28,16 @@
 | alertmanager | prom/alertmanager:v0.27.0 | default | 9093 |
 | grafana | grafana/grafana:10.4.5 | default | 3000 |
 | caddy | caddy:2.8.4 | production | 80, 443 |
-| ddclient | lscr.io/linuxserver/ddclient:3.11.2 | production | — |
+| duckdns | lscr.io/linuxserver/duckdns:latest | production | — |
 | watchtower | containrrr/watchtower:1.7.1 | default | — |
 
 ## Generated files (not in git, created by install.sh)
 - `config/alertmanager/alertmanager.yml` — from template + envsubst
-- `config/ddclient/ddclient.conf` — from template + envsubst
+- DuckDNS has no config file — configured entirely via env vars in docker-compose.yml
 
 ## Open issues / deferred
 - ALLOWED_PUSH_CIDR is empty (college IT hasn't provided CIDR yet); port 9091 open until set
-- Domain zickers.us will change when lab switches colleges — note in docs
+- Domain fridge.zickers.us will change when lab switches colleges — note in docs (update DOMAIN, DDNS_HOSTNAME, GRAFANA_PUBLIC_URL in .env)
 - ddclient version pinning: linuxserver/ddclient:3.11.2 — check for updates periodically
 - alertmanager.yml is still committed (log-only default); install.sh overwrites it locally;
   user must NOT commit after running install.sh (run `git checkout config/alertmanager/alertmanager.yml` to restore)
@@ -47,7 +47,7 @@
 - GF_AUTH_ANONYMOUS_ENABLED=true (Viewer role)
 - GF_SECURITY_ALLOW_EMBEDDING=true
 - Caddy config removes X-Frame-Options header so Grafana can set its own
-- Panel URL format: https://zickers.us/d-solo/{dashUID}/{slug}?panelId={id}&orgId=1&refresh=30s
+- Panel URL format: https://fridge.zickers.us/d-solo/{dashUID}/{slug}?panelId={id}&orgId=1&refresh=30s
 - Documented in docs/panel-embedding.md (Phase E)
 
 ## install.sh idempotency

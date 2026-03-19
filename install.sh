@@ -69,9 +69,21 @@ set -a
 source .env
 set +a
 
+# Re-read variables that may contain special characters (e.g. '!') which
+# Docker Compose's own .env parser strips. Bash sourcing above handles them
+# correctly; we re-export here so Docker Compose picks up the shell env var
+# (which takes precedence over its own .env parsing).
+_reread_var() {
+  local key="$1"
+  local raw
+  raw=$(grep -m1 "^${key}=" .env | cut -d= -f2- | sed "s/^['\"]//;s/['\"]$//")
+  export "${key}=${raw}"
+}
+_reread_var NAMEDOTCOM_USER
+
 # Validate required variables (stricter in production than CI).
 REQUIRED_VARS_ALWAYS=(GF_ADMIN_PASSWORD)
-REQUIRED_VARS_PROD=(DOMAIN SMTP_PASSWORD SMTP_FROM DDNS_USERNAME DDNS_TOKEN DDNS_HOSTNAME)
+REQUIRED_VARS_PROD=(DOMAIN SMTP_PASSWORD SMTP_FROM DUCKDNS_TOKEN DUCKDNS_SUBDOMAINS NAMEDOTCOM_USER NAMEDOTCOM_API_TOKEN)
 
 for var in "${REQUIRED_VARS_ALWAYS[@]}"; do
   [[ -n "${!var:-}" ]] || die "Required variable '$var' is not set in .env"
@@ -107,17 +119,7 @@ envsubst < config/alertmanager/alertmanager.yml.template \
          > config/alertmanager/alertmanager.yml
 ok "config/alertmanager/alertmanager.yml generated."
 
-# ── ddclient (production only) ────────────────────────────────────────────────
-if [[ "$IS_CI" != "true" ]]; then
-  export DDNS_USERNAME="${DDNS_USERNAME:-NOTSET}"
-  export DDNS_TOKEN="${DDNS_TOKEN:-NOTSET}"
-  export DDNS_HOSTNAME="${DDNS_HOSTNAME:-${DOMAIN:-localhost}}"
-
-  mkdir -p config/ddclient
-  envsubst < config/ddclient/ddclient.conf.template \
-           > config/ddclient/ddclient.conf
-  ok "config/ddclient/ddclient.conf generated."
-fi
+# DuckDNS is configured entirely via env vars in docker-compose.yml — no file generation needed.
 
 # =============================================================================
 # 4. Firewall — restrict Pushgateway to trusted CIDR (production only)
@@ -127,9 +129,10 @@ if [[ "$IS_CI" != "true" ]]; then
   if command -v ufw >/dev/null 2>&1; then
     if [[ -n "${ALLOWED_PUSH_CIDR:-}" ]]; then
       info "Restricting port 9091 (Pushgateway) to $ALLOWED_PUSH_CIDR"
-      ufw allow from "$ALLOWED_PUSH_CIDR" to any port 9091 proto tcp >/dev/null 2>&1 \
+      # Allow must be inserted before deny so it is evaluated first.
+      ufw insert 1 allow from "$ALLOWED_PUSH_CIDR" to any port 9091 proto tcp >/dev/null 2>&1 \
         && ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091" \
-        || warn "ufw rule may already exist — skipping."
+        || warn "ufw allow rule may already exist — skipping."
       ufw deny 9091 >/dev/null 2>&1 || true
       ok "Firewall configured."
     else
