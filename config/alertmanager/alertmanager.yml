@@ -34,7 +34,7 @@ receivers:
           *Summary:* {{ .Annotations.summary }}
           {{ end }}
     email_configs:
-      - to: 'person1@gmail.com,person2@icloud.com'
+      - to: 'ipelenur@umass.edu'
         send_resolved: true
         headers:
           Subject: '[Fridge Alert] {{ .GroupLabels.alertname }}'

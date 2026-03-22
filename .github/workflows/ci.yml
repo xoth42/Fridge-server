@@ -56,7 +56,7 @@ jobs:
 
       - name: Verify Prometheus has the metric
         run: |
-          RESPONSE=$(curl -sS 'http://localhost:9090/api/v1/query?query=fridgetestmetric')
+          RESPONSE=$(curl -sS 'http://localhost:9090/api/v1/query?query=%7Bjob%3D%22sensor_data%22%7D')
           python3 testdata/check_prometheus_metric.py "$RESPONSE"
 
       - name: Verify Grafana provisioning
