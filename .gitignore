@@ -13,11 +13,7 @@ alertmanager-data/
 .env
 
 # Generated configs from *.template files (created by install.sh).
-#
-# config/alertmanager/alertmanager.yml — IS tracked in git (log-only default).
-#   install.sh overwrites it locally with real credentials.
-#   Do NOT stage/commit it after running install.sh.
-#   To restore the committed default: git checkout config/alertmanager/alertmanager.yml
+config/alertmanager/alertmanager.runtime.yml
 
 # OS/editor noise
 .DS_Store

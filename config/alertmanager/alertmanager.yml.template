@@ -1,5 +1,5 @@
 # Alertmanager configuration template
-# Generated → config/alertmanager/alertmanager.yml by install.sh (envsubst).
+# Generated at install time → config/alertmanager/alertmanager.runtime.yml (untracked).
 # Edit THIS file to change alert routing; re-run install.sh to apply.
 #
 # Receivers:

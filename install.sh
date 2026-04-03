@@ -116,8 +116,8 @@ export SLACK_WEBHOOK_URL="${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/
 export SLACK_CHANNEL="${SLACK_CHANNEL:-#fridge-alerts}"
 
 envsubst < config/alertmanager/alertmanager.yml.template \
-         > config/alertmanager/alertmanager.yml
-ok "config/alertmanager/alertmanager.yml generated."
+         > config/alertmanager/alertmanager.runtime.yml
+ok "config/alertmanager/alertmanager.runtime.yml generated (untracked)."
 
 # DuckDNS is configured entirely via env vars in docker-compose.yml — no file generation needed.
 
