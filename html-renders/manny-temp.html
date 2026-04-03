@@ -1,0 +1,33 @@
+<style>
+  .fridge-embed { max-width: 1100px; margin: 0 auto; font-family: sans-serif; }
+  .fridge-embed h3 { margin: 0 0 6px; color: #333; font-size: 1.1em; }
+  .fridge-embed iframe { display: block; border: none; background: #111; border-radius: 4px; }
+  .fridge-gauges { display: flex; flex-wrap: nowrap; gap: 6px; margin-top: 6px; }
+  .fridge-gauges iframe { flex: 1 1 0; min-width: 0; }
+</style>
+
+<div class="fridge-embed">
+  <h3>Manny (Bluefors) – Temperature History</h3>
+  <iframe
+    src="https://fridge.zickers.us:8443/d-solo/manny-temperatures/manny-temperatures?orgId=1&panelId=1&from=now-3d&to=now&refresh=30s&theme=dark"
+    width="100%" height="380" scrolling="no" title="Manny — All Temperatures"></iframe>
+
+  <h3 style="margin-top:12px">Live Readings</h3>
+  <div class="fridge-gauges">
+    <iframe
+      src="https://fridge.zickers.us:8443/d-solo/manny-temperatures/manny-temperatures?orgId=1&panelId=2&from=now-5m&to=now&refresh=30s&theme=dark"
+      height="200" scrolling="no" title="50K Flange"></iframe>
+    <iframe
+      src="https://fridge.zickers.us:8443/d-solo/manny-temperatures/manny-temperatures?orgId=1&panelId=3&from=now-5m&to=now&refresh=30s&theme=dark"
+      height="200" scrolling="no" title="4K Flange"></iframe>
+    <iframe
+      src="https://fridge.zickers.us:8443/d-solo/manny-temperatures/manny-temperatures?orgId=1&panelId=4&from=now-5m&to=now&refresh=30s&theme=dark"
+      height="200" scrolling="no" title="Still"></iframe>
+    <iframe
+      src="https://fridge.zickers.us:8443/d-solo/manny-temperatures/manny-temperatures?orgId=1&panelId=5&from=now-5m&to=now&refresh=30s&theme=dark"
+      height="200" scrolling="no" title="MXC"></iframe>
+    <iframe
+      src="https://fridge.zickers.us:8443/d-solo/manny-temperatures/manny-temperatures?orgId=1&panelId=6&from=now-5m&to=now&refresh=30s&theme=dark"
+      height="200" scrolling="no" title="Cold Plate"></iframe>
+  </div>
+</div>

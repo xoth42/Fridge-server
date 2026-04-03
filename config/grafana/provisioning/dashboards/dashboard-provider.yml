@@ -5,7 +5,11 @@ providers:
     orgId: 1
     folder: ""
     type: file
-    disableDeletion: true
-    editable: false
+    # Allow users to delete and edit provisioned dashboards via the UI.
+    # Changes are persisted in the grafana-data volume (SQLite DB).
+    # Note: if the provisioned JSON file is updated and the container restarts,
+    # the DB version takes precedence — UI edits are never silently overwritten.
+    disableDeletion: false
+    allowUiUpdates: true
     options:
       path: /etc/grafana/provisioning/dashboards

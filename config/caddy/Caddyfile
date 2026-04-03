@@ -1,0 +1,31 @@
+# Caddy reverse proxy for Fridge Monitor Grafana
+#
+# TLS certificate is obtained via DNS-01 challenge using the name.com API.
+# This requires no inbound port 80 — only port 8443 needs to be forwarded.
+# DuckDNS handles dynamic IP updates separately (see duckdns service).
+#
+# {$DOMAIN}, {$NAMEDOTCOM_USER}, {$NAMEDOTCOM_API_TOKEN} set from docker-compose.yml env vars.
+
+{$DOMAIN} {
+    tls {
+        dns namedotcom {
+            user   {$NAMEDOTCOM_USER}
+            token  {$NAMEDOTCOM_API_TOKEN}
+            server https://api.name.com
+        }
+    }
+
+    reverse_proxy grafana:3000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        -X-Frame-Options
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}
