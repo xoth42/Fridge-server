@@ -4,7 +4,7 @@ Monitoring stack for Wang Lab dilution refrigerators. Receives temperature and
 pressure metrics from fridge computers, stores them in Prometheus, and displays
 them in Grafana. Sends alerts via Slack and email.
 
-**Fridges:** Manny (Bluefors), Sid (Bluefors), Dodo (Oxford Instruments — pending)
+**Fridges:** Manny (Bluefors), Dodo (Bluefors), Sid (Oxford Instruments — pending)
 
 ---
 
