@@ -76,7 +76,7 @@ set +a
 _reread_var() {
   local key="$1"
   local raw
-  raw=$(grep -m1 "^${key}=" .env | cut -d= -f2- | sed "s/^['\"]//;s/['\"]$//")
+  raw=$(grep -m1 "^${key}=" .env | cut -d= -f2- | sed "s/^['\"]//;s/['\"]$//") || true
   export "${key}=${raw}"
 }
 _reread_var NAMEDOTCOM_USER

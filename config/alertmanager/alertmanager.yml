@@ -36,7 +36,7 @@ receivers:
           *Summary:* {{ .Annotations.summary }}
           {{ end }}
     email_configs:
-      - to: 'ipelenur@umass.edu'
+      - to: 'alerts@example.com'
         send_resolved: true
         headers:
           Subject: '[Fridge Alert] {{ .GroupLabels.alertname }}'
