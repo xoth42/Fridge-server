@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Dodo (Oxford Instruments) pressure monitoring \u2014 log-scale history over 3 days, live readings, and active alerts. Datasource uid must match config/grafana/provisioning/datasources/prometheus.yml.",
+  "description": "Cooling water inlet/outlet temperature for Manny and Dodo. Dodo sensor reports in Fahrenheit (mislabelled as Celsius) \u2014 converted to \u00b0C here.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -34,11 +34,11 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "axisLabel": "Pressure (mbar)",
+            "axisLabel": "Temperature (\u00b0C)",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 12,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -49,10 +49,9 @@
             "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
-              "log": 10,
-              "type": "log"
+              "type": "linear"
             },
-            "showPoints": "always",
+            "showPoints": "never",
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -72,43 +71,13 @@
               }
             ]
           },
-          "unit": "pressurembar"
+          "unit": "celsius"
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "P1"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#37872D",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "P2"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "P3"
+              "options": "Manny Input"
             },
             "properties": [
               {
@@ -123,13 +92,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "P4"
+              "options": "Manny Output"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#3274D9",
+                  "fixedColor": "#8AB8FF",
                   "mode": "fixed"
                 }
               }
@@ -138,13 +107,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "P5"
+              "options": "Dodo Input"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#B877D9",
+                  "fixedColor": "#FF9830",
                   "mode": "fixed"
                 }
               }
@@ -153,13 +122,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "P6"
+              "options": "Dodo Output"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#8F3BB8",
+                  "fixedColor": "#F2495C",
                   "mode": "fixed"
                 }
               }
@@ -197,8 +166,8 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch1_pressure_mbar{instance=\"fridge-dodo\"}",
-          "legendFormat": "P1",
+          "expr": "cpatempwi_celsius{instance=\"fridge-manny\"}",
+          "legendFormat": "Manny Input",
           "range": true,
           "refId": "A"
         },
@@ -208,8 +177,8 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch2_pressure_mbar{instance=\"fridge-dodo\"}",
-          "legendFormat": "P2",
+          "expr": "cpatempwo_celsius{instance=\"fridge-manny\"}",
+          "legendFormat": "Manny Output",
           "range": true,
           "refId": "B"
         },
@@ -219,8 +188,8 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch3_pressure_mbar{instance=\"fridge-dodo\"}",
-          "legendFormat": "P3",
+          "expr": "(cpatempwi_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
+          "legendFormat": "Dodo Input",
           "range": true,
           "refId": "C"
         },
@@ -230,35 +199,13 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch4_pressure_mbar{instance=\"fridge-dodo\"}",
-          "legendFormat": "P4",
+          "expr": "(cpatempwo_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
+          "legendFormat": "Dodo Output",
           "range": true,
           "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "P1809F7CD0C75ACF3"
-          },
-          "editorMode": "code",
-          "expr": "maxigauge_ch5_pressure_mbar{instance=\"fridge-dodo\"}",
-          "legendFormat": "P5",
-          "range": true,
-          "refId": "E"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "P1809F7CD0C75ACF3"
-          },
-          "editorMode": "code",
-          "expr": "maxigauge_ch6_pressure_mbar{instance=\"fridge-dodo\"}",
-          "legendFormat": "P6",
-          "range": true,
-          "refId": "F"
         }
       ],
-      "title": "All Pressures \u2014 Log Scale",
+      "title": "Cooling Water Temperature \u2014 All Channels",
       "type": "timeseries"
     },
     {
@@ -269,137 +216,9 @@
         "x": 0,
         "y": 12
       },
-      "id": 11,
+      "id": 10,
       "title": "Live Readings",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "P1809F7CD0C75ACF3"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#37872D",
-            "mode": "fixed"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "pressurembar"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 0,
-        "y": 13
-      },
-      "id": 6,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "text": {},
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "P1809F7CD0C75ACF3"
-          },
-          "editorMode": "code",
-          "expr": "maxigauge_ch1_pressure_mbar{instance=\"fridge-dodo\"}",
-          "instant": true,
-          "legendFormat": "P1",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "P1",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "P1809F7CD0C75ACF3"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#73BF69",
-            "mode": "fixed"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "pressurembar"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 4,
-        "y": 13
-      },
-      "id": 7,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "text": {},
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "P1809F7CD0C75ACF3"
-          },
-          "editorMode": "code",
-          "expr": "maxigauge_ch2_pressure_mbar{instance=\"fridge-dodo\"}",
-          "instant": true,
-          "legendFormat": "P2",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "P2",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -413,6 +232,8 @@
             "mode": "fixed"
           },
           "mappings": [],
+          "min": 0,
+          "max": 40,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -422,17 +243,17 @@
               }
             ]
           },
-          "unit": "pressurembar"
+          "unit": "celsius"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 8,
+        "h": 8,
+        "w": 6,
+        "x": 0,
         "y": 13
       },
-      "id": 8,
+      "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -455,14 +276,14 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch3_pressure_mbar{instance=\"fridge-dodo\"}",
+          "expr": "cpatempwi_celsius{instance=\"fridge-manny\"}",
           "instant": true,
-          "legendFormat": "P3",
+          "legendFormat": "Manny Input",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "P3",
+      "title": "Manny Input",
       "type": "stat"
     },
     {
@@ -473,10 +294,12 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#3274D9",
+            "fixedColor": "#8AB8FF",
             "mode": "fixed"
           },
           "mappings": [],
+          "min": 0,
+          "max": 40,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -486,17 +309,83 @@
               }
             ]
           },
-          "unit": "pressurembar"
+          "unit": "celsius"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 13
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "P1809F7CD0C75ACF3"
+          },
+          "editorMode": "code",
+          "expr": "cpatempwo_celsius{instance=\"fridge-manny\"}",
+          "instant": true,
+          "legendFormat": "Manny Output",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Manny Output",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "P1809F7CD0C75ACF3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#FF9830",
+            "mode": "fixed"
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 40,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
         "x": 12,
         "y": 13
       },
-      "id": 9,
+      "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -519,14 +408,14 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch4_pressure_mbar{instance=\"fridge-dodo\"}",
+          "expr": "(cpatempwi_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
           "instant": true,
-          "legendFormat": "P4",
+          "legendFormat": "Dodo Input",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "P4",
+      "title": "Dodo Input",
       "type": "stat"
     },
     {
@@ -537,10 +426,12 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#B877D9",
+            "fixedColor": "#F2495C",
             "mode": "fixed"
           },
           "mappings": [],
+          "min": 0,
+          "max": 40,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -550,17 +441,17 @@
               }
             ]
           },
-          "unit": "pressurembar"
+          "unit": "celsius"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 16,
+        "h": 8,
+        "w": 6,
+        "x": 18,
         "y": 13
       },
-      "id": 14,
+      "id": 5,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -583,78 +474,14 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "maxigauge_ch5_pressure_mbar{instance=\"fridge-dodo\"}",
+          "expr": "(cpatempwo_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
           "instant": true,
-          "legendFormat": "P5",
+          "legendFormat": "Dodo Output",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "P5",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "P1809F7CD0C75ACF3"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#8F3BB8",
-            "mode": "fixed"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "pressurembar"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 20,
-        "y": 13
-      },
-      "id": 15,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "text": {},
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "P1809F7CD0C75ACF3"
-          },
-          "editorMode": "code",
-          "expr": "maxigauge_ch6_pressure_mbar{instance=\"fridge-dodo\"}",
-          "instant": true,
-          "legendFormat": "P6",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "P6",
+      "title": "Dodo Output",
       "type": "stat"
     },
     {
@@ -663,9 +490,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 19
+        "y": 21
       },
-      "id": 12,
+      "id": 11,
       "title": "Alerts",
       "type": "row"
     },
@@ -674,9 +501,9 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 22
       },
-      "id": 13,
+      "id": 7,
       "options": {
         "alertInstanceLabelFilter": "",
         "alertName": "",
@@ -706,6 +533,7 @@
   "style": "dark",
   "tags": [
     "fridge",
+    "manny",
     "dodo"
   ],
   "templating": {
@@ -717,8 +545,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Dodo \u2014 Pressures",
-  "uid": "dodo-pressures",
-  "version": 2,
+  "title": "Cooling Water \u2014 Temperatures",
+  "uid": "cooling-water",
+  "version": 9,
   "weekStart": ""
 }
