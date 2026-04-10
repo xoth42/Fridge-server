@@ -76,7 +76,7 @@ set +a
 _reread_var() {
   local key="$1"
   local raw
-  raw=$(grep -m1 "^${key}=" .env | cut -d= -f2- | sed "s/^['\"]//;s/['\"]$//") || true
+  raw=$(grep -m1 "^${key}=" .env | cut -d= -f2- | sed "s/^['\"]//;s/['\"]$//")
   export "${key}=${raw}"
 }
 _reread_var NAMEDOTCOM_USER
@@ -129,11 +129,38 @@ if [[ "$IS_CI" != "true" ]]; then
   if command -v ufw >/dev/null 2>&1; then
     if [[ -n "${ALLOWED_PUSH_CIDR:-}" ]]; then
       info "Restricting port 9091 (Pushgateway) to $ALLOWED_PUSH_CIDR"
+
+      ufw_allow_rule_exists() {
+        ufw status 2>/dev/null | awk -v cidr="$ALLOWED_PUSH_CIDR" '
+          $1=="9091/tcp" && $2=="ALLOW" && $3==cidr { found=1 }
+          END { exit(found ? 0 : 1) }
+        '
+      }
+
+      ufw_deny_rule_exists() {
+        ufw status 2>/dev/null | awk '
+          ($1=="9091" || $1=="9091/tcp") && $2=="DENY" { found=1 }
+          END { exit(found ? 0 : 1) }
+        '
+      }
+
       # Allow must be inserted before deny so it is evaluated first.
-      ufw insert 1 allow from "$ALLOWED_PUSH_CIDR" to any port 9091 proto tcp >/dev/null 2>&1 \
-        && ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091" \
-        || warn "ufw allow rule may already exist — skipping."
-      ufw deny 9091 >/dev/null 2>&1 || true
+      if ufw insert 1 allow from "$ALLOWED_PUSH_CIDR" to any port 9091 proto tcp >/dev/null 2>&1; then
+        ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091"
+      elif ufw_allow_rule_exists; then
+        ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091 already exists."
+      else
+        die "Failed to apply ufw allow rule for $ALLOWED_PUSH_CIDR on port 9091. Run install.sh with sufficient privileges and a valid ALLOWED_PUSH_CIDR."
+      fi
+
+      if ufw deny 9091 >/dev/null 2>&1; then
+        ok "ufw: deny 9091"
+      elif ufw_deny_rule_exists; then
+        ok "ufw: deny 9091 already exists."
+      else
+        die "Failed to apply ufw deny 9091 rule. Pushgateway may be exposed."
+      fi
+
       ok "Firewall configured."
     else
       warn "ALLOWED_PUSH_CIDR is not set — port 9091 (Pushgateway) is open to all."

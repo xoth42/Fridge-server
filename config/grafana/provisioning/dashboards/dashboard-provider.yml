@@ -10,6 +10,6 @@ providers:
     # Note: if the provisioned JSON file is updated and the container restarts,
     # the DB version takes precedence — UI edits are never silently overwritten.
     disableDeletion: false
-    allowUiUpdates: true
+    allowUiUpdates: false
     options:
       path: /etc/grafana/provisioning/dashboards

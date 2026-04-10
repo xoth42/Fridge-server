@@ -59,7 +59,7 @@ services:
   # Grafana — dashboards and unified alert rule management
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana:10.4.5
+    image: grafana/grafana:11.6.0
     container_name: fridge-grafana
     environment:
       # Admin credentials — override in .env before any public exposure.
