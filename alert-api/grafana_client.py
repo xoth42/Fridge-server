@@ -105,17 +105,41 @@ class GrafanaClient:
             return resp.json()
 
     async def set_alert_enabled(self, uid: str, enabled: bool) -> None:
-        """Enable/disable an alert by updating isPaused via provisioning API."""
+        """Enable/disable an alert by PUT-ing back only the writable fields.
+
+        Grafana 11's provisioning API has no PATCH/pause shortcut — the only
+        way to flip isPaused is a full PUT.  We must NOT echo back read-only
+        fields (id, provenance, updated); Grafana silently ignores the entire
+        request when those are present, producing a 200 that changes nothing.
+        """
         rule = await self.get_alert_rule(uid)
-        rule["isPaused"] = not enabled
-        # Strip read-only provenance field — Grafana rejects PUT if it's present
-        rule.pop("provenance", None)
+
+        # Build a clean body containing only fields the PUT endpoint accepts.
+        put_payload: dict = {
+            "title":        rule["title"],
+            "ruleGroup":    rule["ruleGroup"],
+            "folderUID":    rule["folderUID"],
+            "for":          rule["for"],
+            "condition":    rule["condition"],
+            "data":         rule["data"],
+            "labels":       rule.get("labels", {}),
+            "annotations":  rule.get("annotations", {}),
+            "noDataState":  rule.get("noDataState", "NoData"),
+            "execErrState": rule.get("execErrState", "Error"),
+            "isPaused":     not enabled,
+        }
+        # Pass through optional fields if Grafana returned them
+        for optional in ("notification_settings", "record"):
+            if optional in rule:
+                put_payload[optional] = rule[optional]
 
         headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
         async with httpx.AsyncClient(
             base_url=self.base_url, headers=headers, timeout=10.0
         ) as client:
-            resp = await client.put(f"/api/v1/provisioning/alert-rules/{uid}", json=rule)
+            resp = await client.put(
+                f"/api/v1/provisioning/alert-rules/{uid}", json=put_payload
+            )
             resp.raise_for_status()
 
     async def set_alert_notify_to(self, uid: str, contact_uids: list[str]) -> None:
@@ -277,6 +301,8 @@ class GrafanaClient:
         title: str,
         fridge: str,
         metric: str,
+        metric_label: str,
+        metric_unit: str,
         grafana_operator: str,
         threshold: float,
         for_duration: str,
@@ -334,6 +360,7 @@ class GrafanaClient:
             },
         ]
         symbol = GRAFANA_TYPE_TO_SYMBOL.get(grafana_operator, grafana_operator)
+        unit_str = f" {metric_unit}" if metric_unit else ""
         return {
             "title": title,
             "ruleGroup": "user-alerts",
@@ -351,8 +378,8 @@ class GrafanaClient:
             },
             "annotations": {
                 "summary": (
-                    f"{fridge} {metric} is {{{{ $values.B }}}} "
-                    f"(threshold: {symbol} {threshold})"
+                    f"{metric_label} is {{{{ $values.B }}}}{unit_str}"
+                    f" ({metric} {symbol} {threshold})"
                 )
             },
         }

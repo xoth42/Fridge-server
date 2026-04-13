@@ -220,6 +220,8 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
         title=req.name,
         fridge=req.fridge,
         metric=req.metric,
+        metric_label=mc["label"] if mc else req.metric,
+        metric_unit=mc["unit"] if mc else "",
         grafana_operator=grafana_operator,
         threshold=req.threshold,
         for_duration=req.for_duration,

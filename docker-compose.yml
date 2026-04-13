@@ -175,8 +175,9 @@ services:
   # Checks every Monday at 04:00.
   # ---------------------------------------------------------------------------
   watchtower:
-    image: containrrr/watchtower:1.7.1
+    image: containrrr/watchtower:latest
     container_name: fridge-watchtower
+    command: --api-version 1.44
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:

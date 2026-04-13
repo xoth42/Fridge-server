@@ -6,7 +6,7 @@
   --surface:    #ffffff;
   --border:     #e2e5ed;
   --text:       #1a1d2b;
-  --text-muted: #6b7280;
+  --text-muted: #1a1d2b;
   --primary:    #3b5bdb;
   --primary-h:  #2f4abf;
   --danger:     #e03131;
@@ -109,9 +109,9 @@ table {
 thead th {
   text-align: left;
   padding: 8px 12px;
-  background: #f8f9fc;
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
+  color: var(--text);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -143,17 +143,18 @@ tbody tr:last-child td { border-bottom: none; }
   gap: 4px;
   padding: 2px 8px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
 
-.badge-normal   { background: #d3f9d8; color: #1a6b30; }
-.badge-pending  { background: #fff3bf; color: #7a5c00; }
-.badge-firing   { background: #ffe3e3; color: #8b0000; }
-.badge-unknown  { background: #e9ecef; color: #495057; }
-.badge-baseline { background: #e9ecef; color: #495057; }
-.badge-custom   { background: #dbe4ff; color: #1c3ea6; }
+.badge-normal    { background: #d3f9d8; color: #1a6b30; }
+.badge-pending   { background: #fff3bf; color: #7a5c00; }
+.badge-firing    { background: #ffe3e3; color: #8b0000; }
+.badge-unknown   { background: #e9ecef; color: #495057; }
+.badge-baseline  { background: #e9ecef; color: #495057; }
+.badge-custom    { background: #dbe4ff; color: #1c3ea6; }
+.badge-disabled  { background: #dbe4ff; color: #1c3ea6; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
 .btn {
@@ -181,7 +182,7 @@ tbody tr:last-child td { border-bottom: none; }
 .btn-secondary { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
 .btn-secondary:hover { background: #eef1ff; }
 
-.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-sm { padding: 4px 10px; font-size: 13px; }
 
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 
@@ -200,7 +201,7 @@ tbody tr:last-child td { border-bottom: none; }
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8f9fc;
+  background: var(--surface);
 }
 
 .create-alert-grid {
@@ -214,9 +215,9 @@ tbody tr:last-child td { border-bottom: none; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
 
 .form-group label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text);
   text-transform: uppercase;
   letter-spacing: .4px;
 }
@@ -246,13 +247,13 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 .form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  color: var(--text);
   margin-top: 4px;
 }
 
 .notify-context {
-  background: #f8f9fc;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
@@ -261,8 +262,8 @@ tbody tr:last-child td { border-bottom: none; }
 
 .notify-context p {
   margin: 0;
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  color: var(--text);
 }
 
 .notify-context p + p {
@@ -324,13 +325,13 @@ tbody tr:last-child td { border-bottom: none; }
 
 .login-box p {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--text);
   margin-bottom: 20px;
 }
 
 .login-error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 8px;
   min-height: 16px;
 }
@@ -415,7 +416,7 @@ tbody tr:last-child td { border-bottom: none; }
     background: transparent;
   }
 
-  table { font-size: 12px; }
+  table { font-size: 13px; }
   thead th, tbody td { padding: 7px 8px; }
 
   /* Hide less-critical columns on mobile */

@@ -10,14 +10,12 @@ contactPoints:
           addresses: $ALERT_EMAIL_TO
           singleEmail: true
           subject: >-
-            [{{ .CommonLabels.severity | upper }}]
-            {{ coalesce .CommonLabels.rulename .CommonLabels.alertname }}
-            — {{ coalesce .CommonLabels.fridge .CommonLabels.instance }}
+            {{ or .CommonLabels.rulename .CommonLabels.alertname "Alert" }}
+            — {{ or .CommonLabels.fridge .CommonLabels.instance "Unknown" }}
           message: |-
             {{ range .Alerts -}}
-            <b>Rule:</b> {{ coalesce .Labels.rulename .Labels.alertname }}<br>
-            <b>Fridge:</b> {{ coalesce .Labels.fridge .Labels.instance }}<br>
-            <b>Severity:</b> {{ .Labels.severity }}<br>
+            <b>Rule:</b> {{ or .Labels.rulename .Labels.alertname "Alert" }}<br>
+            <b>Fridge:</b> {{ or .Labels.fridge .Labels.instance "Unknown" }}<br>
             {{ if .Annotations.summary -}}
             <b>Summary:</b> {{ .Annotations.summary }}<br>
             {{ end -}}
@@ -32,9 +30,8 @@ contactPoints:
         settings:
           url: $SLACK_WEBHOOK_URL
           title: >-
-            [{{ .CommonLabels.alertname }}]
-            {{ .CommonLabels.fridge }}{{ .CommonLabels.instance }}
+            {{ .CommonLabels.alertname }}
           text: |-
             {{ range .Alerts -}}
-            *[{{ .Labels.severity }}]* {{ .Annotations.summary }}
+            {{ .Annotations.summary }}
             {{ end -}}

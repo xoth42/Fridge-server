@@ -245,7 +245,7 @@ function renderAlerts(alerts) {
 
   tbody.innerHTML = alerts.map((a) => {
     const stateBadge = !a.enabled
-      ? '<span class="badge badge-unknown">&#9208; Paused</span>'
+      ? '<span class="badge badge-disabled">&#9646;&#9646; Disabled</span>'
       : ({
           normal:  '<span class="badge badge-normal">&#9679; Normal</span>',
           pending: '<span class="badge badge-pending">&#9679; Pending</span>',
@@ -286,12 +286,15 @@ async function toggleAlert(uid, enabled, btn) {
       body: JSON.stringify({ enabled }),
     });
     if (resp.ok) {
-      toast(`Alert ${enabled ? 'enabled' : 'disabled'}.`);
-      // Keep button in a clear "updating" state while Grafana commits the
-      // isPaused change — fetching immediately races with the write.
+      // Poll until Grafana confirms the change, then update the table.
       btn.textContent = 'Updating…';
-      await new Promise(r => setTimeout(r, 700));
-      await loadAlerts();
+      const confirmed = await pollAlertEnabled(uid, enabled);
+      if (confirmed) {
+        toast(`Alert ${enabled ? 'enabled' : 'disabled'}.`);
+      } else {
+        toast('State may not have applied — check Grafana.', 'error');
+        await loadAlerts();
+      }
     } else {
       const body = await resp.json().catch(() => ({}));
       toast(body.detail || `Error ${resp.status}`, 'error');
@@ -305,6 +308,30 @@ async function toggleAlert(uid, enabled, btn) {
       btn.textContent = enabled ? 'Enable' : 'Disable';
     }
   }
+}
+
+// Poll /api/alerts until the named alert's enabled field matches the expected
+// value, then re-render the table. Returns true if confirmed within timeout.
+async function pollAlertEnabled(uid, expected, { intervalMs = 600, maxAttempts = 8 } = {}) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    try {
+      const resp = await apiFetch('/alerts');
+      if (!resp.ok) break;
+      const alerts = await resp.json();
+      window._alertsCache = alerts;
+      const match = alerts.find((a) => a.uid === uid);
+      if (match && match.enabled === expected) {
+        renderAlerts(alerts);
+        document.getElementById('refresh-indicator').textContent =
+          'Updated ' + new Date().toLocaleTimeString();
+        return true;
+      }
+    } catch (_) {
+      break;
+    }
+  }
+  return false;
 }
 
 async function deleteAlert(uid, btn) {
@@ -428,7 +455,7 @@ async function loadRecipients() {
 function renderRecipients(recipients) {
   const ul = document.getElementById('recipient-list');
   if (recipients.length === 0) {
-    ul.innerHTML = '<li style="color:#6b7280">No recipients configured.</li>';
+    ul.innerHTML = '<li>No recipients configured.</li>';
     return;
   }
   ul.innerHTML = recipients.map((r) =>
