@@ -86,6 +86,10 @@ services:
       - GF_SMTP_FROM_ADDRESS=${SMTP_FROM:-alerts@example.com}
       - GF_SMTP_FROM_NAME=Fridge Monitor
       - GF_SMTP_STARTTLS_POLICY=MandatoryStartTLS
+
+      # Values used by Grafana alerting provisioning files.
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-noreply@example.com}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/NOTCONFIGURED/NOTCONFIGURED/notconfigured}
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       # Named volume persists the SQLite DB (alert rules, user edits, accounts).

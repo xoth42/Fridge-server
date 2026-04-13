@@ -24,6 +24,8 @@
         reverse_proxy alert-api:8000
     }
 
+    redir /alerts /alerts/ 308
+
     handle /alerts/* {
         root * /srv/alert-ui
         file_server
