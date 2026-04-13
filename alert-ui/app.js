@@ -115,7 +115,7 @@ document.getElementById('btn-signout').addEventListener('click', () => {
   showLogin();
   stopAutoRefresh();
   document.getElementById('alerts-body').innerHTML =
-    '<tr class="empty-row"><td colspan="8">Sign in to view alerts.</td></tr>';
+    '<tr class="empty-row"><td colspan="9">Sign in to view alerts.</td></tr>';
 });
 
 // ── Bootstrap ───────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ async function loadAlerts() {
     const resp = await apiFetch('/alerts');
     if (!resp.ok) {
       document.getElementById('alerts-body').innerHTML =
-        `<tr class="empty-row"><td colspan="8">Error loading alerts (${resp.status}).</td></tr>`;
+        `<tr class="empty-row"><td colspan="9">Error loading alerts (${resp.status}).</td></tr>`;
       return;
     }
     const alerts = await resp.json();
@@ -211,15 +211,26 @@ async function loadAlerts() {
   } catch (err) {
     if (err.message !== 'Unauthenticated') {
       document.getElementById('alerts-body').innerHTML =
-        '<tr class="empty-row"><td colspan="8">Failed to load alerts.</td></tr>';
+        '<tr class="empty-row"><td colspan="9">Failed to load alerts.</td></tr>';
     }
   }
+}
+
+function fmtValue(val, metricName) {
+  if (val === null || val === undefined) return '—';
+  const meta = metricsData.metrics.find((m) => m.name === metricName);
+  const unit = meta ? meta.unit : '';
+  const abs = Math.abs(val);
+  const formatted = (abs < 0.01 && abs > 0)
+    ? val.toExponential(2)
+    : parseFloat(val.toPrecision(4)).toString();
+  return `${formatted} ${unit}`.trim();
 }
 
 function renderAlerts(alerts) {
   const tbody = document.getElementById('alerts-body');
   if (alerts.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No alerts configured.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No alerts configured.</td></tr>';
     return;
   }
 
@@ -242,11 +253,16 @@ function renderAlerts(alerts) {
       ? `${escHtml(a.operator)} ${a.threshold}`
       : '—';
 
+    const currentCell = a.current_value !== null && a.current_value !== undefined
+      ? `<td class="col-current${a.state === 'firing' ? ' current-firing' : ''}">${fmtValue(a.current_value, a.metric)}</td>`
+      : '<td class="col-current">—</td>';
+
     return `<tr>
       <td>${escHtml(a.title)}</td>
       <td>${escHtml(a.fridge)}</td>
       <td class="col-metric">${escHtml(a.metric)}</td>
       <td class="col-operator">${condition}</td>
+      ${currentCell}
       <td>${escHtml(a.severity)}</td>
       <td>${stateBadge}</td>
       <td>${tierBadge}</td>

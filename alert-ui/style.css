@@ -133,6 +133,9 @@ tbody tr:last-child td { border-bottom: none; }
   padding: 24px;
 }
 
+.col-current { font-variant-numeric: tabular-nums; min-width: 90px; }
+.current-firing { color: #ef4444; font-weight: 600; }
+
 /* ── Badges ────────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;

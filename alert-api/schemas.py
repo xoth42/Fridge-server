@@ -49,6 +49,7 @@ class AlertListItem(BaseModel):
     severity: str
     provisioned: bool
     state: str
+    current_value: Optional[float] = None
 
 
 class CreateRecipientRequest(BaseModel):

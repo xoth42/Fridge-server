@@ -12,6 +12,7 @@ This means:
 """
 
 import base64
+import asyncio
 import os
 import re
 import yaml
@@ -39,6 +40,7 @@ from schemas import (
 
 GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://grafana:3000")
 GRAFANA_SA_TOKEN = os.environ.get("GRAFANA_SA_TOKEN", "")
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
 
 # Populated at startup from metrics.yml
 _metrics_config: dict = {}
@@ -133,6 +135,20 @@ async def get_metrics() -> MetricsResponse:
     )
 
 
+async def _fetch_prometheus_value(metric: str, fridge: str) -> Optional[float]:
+    try:
+        query = f'{metric}{{instance="{fridge}"}}'
+        async with httpx.AsyncClient(base_url=PROMETHEUS_URL, timeout=5.0) as client:
+            resp = await client.get("/api/v1/query", params={"query": query})
+            if resp.status_code == 200:
+                results = resp.json().get("data", {}).get("result", [])
+                if results:
+                    return float(results[0]["value"][1])
+    except Exception:
+        pass
+    return None
+
+
 @app.get("/api/alerts", dependencies=[Depends(require_auth)])
 async def list_alerts() -> list[AlertListItem]:
     try:
@@ -140,7 +156,12 @@ async def list_alerts() -> list[AlertListItem]:
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
-    return [AlertListItem(**GrafanaClient.parse_rule(r)) for r in raw_rules]
+    items = [AlertListItem(**GrafanaClient.parse_rule(r)) for r in raw_rules]
+    values = await asyncio.gather(*[_fetch_prometheus_value(i.metric, i.fridge) for i in items])
+    for item, val in zip(items, values):
+        item.current_value = val
+
+    return items
 
 
 @app.post("/api/alerts", dependencies=[Depends(require_auth)], response_model=CreateAlertResponse)
