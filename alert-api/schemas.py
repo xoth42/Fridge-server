@@ -9,15 +9,7 @@ class CreateAlertRequest(BaseModel):
     metric: str
     operator: str
     threshold: float
-    for_duration: str = "5m"
-    severity: str = "warning"
-
-    @field_validator("severity")
-    @classmethod
-    def check_severity(cls, v: str) -> str:
-        if v not in ("warning", "critical"):
-            raise ValueError("severity must be 'warning' or 'critical'")
-        return v
+    for_duration: str = "1m"
 
     @field_validator("for_duration")
     @classmethod
@@ -46,10 +38,19 @@ class AlertListItem(BaseModel):
     metric: str
     operator: str
     threshold: float
-    severity: str
+    enabled: bool = True
     provisioned: bool
     state: str
     current_value: Optional[float] = None
+    notify_to: list[str] = []
+
+
+class SetAlertEnabledRequest(BaseModel):
+    enabled: bool
+
+
+class SetAlertRecipientsRequest(BaseModel):
+    contact_uids: list[str]
 
 
 class CreateRecipientRequest(BaseModel):

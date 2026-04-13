@@ -9,6 +9,20 @@ contactPoints:
         settings:
           addresses: $ALERT_EMAIL_TO
           singleEmail: true
+          subject: >-
+            [{{ .CommonLabels.severity | upper }}]
+            {{ coalesce .CommonLabels.rulename .CommonLabels.alertname }}
+            — {{ coalesce .CommonLabels.fridge .CommonLabels.instance }}
+          message: |-
+            {{ range .Alerts -}}
+            <b>Rule:</b> {{ coalesce .Labels.rulename .Labels.alertname }}<br>
+            <b>Fridge:</b> {{ coalesce .Labels.fridge .Labels.instance }}<br>
+            <b>Severity:</b> {{ .Labels.severity }}<br>
+            {{ if .Annotations.summary -}}
+            <b>Summary:</b> {{ .Annotations.summary }}<br>
+            {{ end -}}
+            <br>
+            {{ end -}}
 
   - orgId: 1
     name: lab-slack
@@ -17,9 +31,10 @@ contactPoints:
         type: slack
         settings:
           url: $SLACK_WEBHOOK_URL
-          title: |-
-            [{{ $$labels.severity | toUpper }}] {{ $$labels.alertname }}
+          title: >-
+            [{{ .CommonLabels.alertname }}]
+            {{ .CommonLabels.fridge }}{{ .CommonLabels.instance }}
           text: |-
-            *Fridge:* {{ $$labels.fridge }}
-            *Value:*  {{ $$values.A }}
-            {{ $$annotations.summary }}
+            {{ range .Alerts -}}
+            *[{{ .Labels.severity }}]* {{ .Annotations.summary }}
+            {{ end -}}

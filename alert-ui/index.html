@@ -34,7 +34,7 @@
     <h1>&#10052; Fridge Alert Manager</h1>
     <div class="header-user">
       <span id="header-username"></span>
-      <button class="btn-link" id="btn-signout">Sign out</button>
+      <button class="btn btn-primary btn-sm" id="btn-signout">Sign out</button>
     </div>
   </div>
 </header>
@@ -53,18 +53,17 @@
           <thead>
             <tr>
               <th>Name</th>
+              <th>Status</th>
               <th>Fridge</th>
               <th class="col-metric">Metric</th>
               <th class="col-operator">Condition</th>
               <th>Current</th>
-              <th>Severity</th>
-              <th>Status</th>
-              <th>Tier</th>
-              <th>Actions</th>
+              <th>On/Off</th>
+              <th>Delete</th>
             </tr>
           </thead>
           <tbody id="alerts-body">
-            <tr class="empty-row"><td colspan="9">Loading&hellip;</td></tr>
+            <tr class="empty-row"><td colspan="8">Loading&hellip;</td></tr>
           </tbody>
         </table>
       </div>
@@ -75,15 +74,11 @@
   <div class="card">
     <div class="card-header">
       <h2>Create Alert</h2>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-use-template">Use Template</button>
     </div>
     <div class="card-body">
       <form id="create-form">
-        <div class="form-grid">
-
-          <div class="form-group">
-            <label for="f-name">Alert Name</label>
-            <input id="f-name" type="text" placeholder="e.g. Manny MXC too warm" maxlength="100" required />
-          </div>
+        <div class="form-grid create-alert-grid">
 
           <div class="form-group">
             <label for="f-fridge">Fridge</label>
@@ -93,42 +88,34 @@
           </div>
 
           <div class="form-group">
-            <label for="f-metric">Metric</label>
-            <select id="f-metric" required>
-              <option value="">— select fridge first —</option>
-            </select>
+            <label for="f-name">Alert Name</label>
+            <input id="f-name" type="text" placeholder="e.g. Manny MXC too warm" maxlength="100" required />
           </div>
 
-          <div class="form-group">
-            <label for="f-operator">Operator</label>
-            <select id="f-operator" required>
-              <option value="">— select —</option>
-            </select>
+          <div class="equation-row" aria-label="Alert equation">
+            <div class="form-group">
+              <label for="f-metric">Metric</label>
+              <select id="f-metric" required>
+                <option value="">— select fridge first —</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="f-operator">Operator</label>
+              <select id="f-operator" required>
+                <option value="">— select —</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="f-threshold">Threshold</label>
+              <input id="f-threshold" type="number" step="0.001" placeholder="0.030" required />
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="f-threshold">Threshold</label>
-            <input id="f-threshold" type="number" step="0.001" placeholder="0.030" required />
-          </div>
+          <input id="f-duration" type="hidden" value="1m" />
 
-          <div class="form-group">
-            <label for="f-duration">Duration</label>
-            <select id="f-duration">
-              <option value="1m">1 minute</option>
-              <option value="5m" selected>5 minutes</option>
-              <option value="10m">10 minutes</option>
-              <option value="30m">30 minutes</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="f-severity">Severity</label>
-            <select id="f-severity">
-              <option value="warning" selected>Warning</option>
-              <option value="critical">Critical</option>
-            </select>
-            <p class="form-hint">Notifications route to all recipients via the notification policy (based on severity).</p>
-          </div>
+          <p class="form-hint">Notifications route to all recipients via the notification policy.</p>
 
         </div>
 
@@ -143,12 +130,17 @@
   <!-- ── Recipients panel ──────────────────────────────────────────────────── -->
   <div class="card">
     <div class="card-header">
-      <h2>Notification Recipients</h2>
-      <button class="collapse-toggle" id="recipient-toggle" aria-expanded="false">
+      <h2>Notification Recipients (Click to configure)</h2>
+      <button class="btn btn-primary btn-sm" id="recipient-toggle" aria-expanded="false">
         &#43; Add recipient
       </button>
     </div>
     <div class="card-body">
+      <div class="notify-context" role="note" aria-label="Notification routing context">
+        <p><strong>Alert email sender:</strong> alerts@fridge.zickers.us</p>
+        <p><strong>Slack channel:</strong> #fridge-alerts</p>
+      </div>
+
       <!-- Add recipient form (collapsible) -->
       <div class="collapse-content" id="recipient-form-wrap">
         <form id="recipient-form" style="margin-bottom:16px">
@@ -178,6 +170,22 @@
   </div>
 
 </div><!-- /.container -->
+
+<div class="container" id="assignment-panel-container" hidden>
+  <div class="card" id="assignment-panel">
+    <div class="card-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2 id="assignment-panel-title">Alert assignments</h2>
+        <button class="btn btn-danger btn-sm" id="assignment-delete-recipient">Delete recipient</button>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="assignment-close">&#10005; Close</button>
+    </div>
+    <div class="card-body">
+      <p style="font-size:13px;color:#6b7280;margin-bottom:14px">Check which alerts this recipient should receive. Unchecked alerts will not be sent to this recipient.</p>
+      <ul id="assignment-list" class="assignment-list"></ul>
+    </div>
+  </div>
+</div>
 
 <!-- ── Toast ────────────────────────────────────────────────────────────────── -->
 <div id="toast" role="status" aria-live="polite"></div>

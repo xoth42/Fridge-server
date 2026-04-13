@@ -34,6 +34,8 @@ from schemas import (
     FridgeItem,
     OperatorItem,
     RecipientListItem,
+    SetAlertEnabledRequest,
+    SetAlertRecipientsRequest,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -221,7 +223,6 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
         grafana_operator=grafana_operator,
         threshold=req.threshold,
         for_duration=req.for_duration,
-        severity=req.severity,
         folder_uid=folder_uid,
     )
 
@@ -236,14 +237,14 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
     return CreateAlertResponse(uid=created["uid"], title=created["title"])
 
 
-@app.delete("/api/alerts/{uid}", dependencies=[Depends(require_auth)])
-async def delete_alert(uid: str) -> dict:
+@app.patch("/api/alerts/{uid}/enabled", dependencies=[Depends(require_auth)])
+async def set_alert_enabled(uid: str, req: SetAlertEnabledRequest) -> dict:
     # Validate UID is a safe identifier (no path traversal)
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
         raise HTTPException(status_code=400, detail="Invalid alert UID")
 
     try:
-        await _grafana.delete_alert_rule(uid)
+        await _grafana.set_alert_enabled(uid, req.enabled)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except httpx.HTTPStatusError as exc:
@@ -251,6 +252,62 @@ async def delete_alert(uid: str) -> dict:
             raise HTTPException(status_code=404, detail="Alert not found")
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
+    return {"uid": uid, "enabled": req.enabled}
+
+
+@app.delete("/api/alerts/{uid}", dependencies=[Depends(require_auth)])
+async def delete_alert(uid: str) -> dict:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
+        raise HTTPException(status_code=400, detail="Invalid alert UID")
+
+    try:
+        rule = await _grafana.get_alert_rule(uid)
+        if rule.get("provenance") == "file":
+            raise HTTPException(status_code=403, detail="Cannot delete a baseline alert")
+        headers = {"Authorization": f"Bearer {GRAFANA_SA_TOKEN}", "X-Disable-Provenance": "true"}
+        import httpx as _httpx
+        async with _httpx.AsyncClient(base_url=GRAFANA_URL, headers=headers, timeout=10.0) as client:
+            resp = await client.delete(f"/api/v1/provisioning/alert-rules/{uid}")
+            resp.raise_for_status()
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+
+    return {"deleted": True}
+
+
+@app.patch("/api/alerts/{uid}/recipients", dependencies=[Depends(require_auth)])
+async def set_alert_recipients(uid: str, req: SetAlertRecipientsRequest) -> dict:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
+        raise HTTPException(status_code=400, detail="Invalid alert UID")
+    for cuid in req.contact_uids:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", cuid):
+            raise HTTPException(status_code=400, detail=f"Invalid contact UID: {cuid!r}")
+
+    try:
+        await _grafana.set_alert_notify_to(uid, req.contact_uids)
+        raw_rules = await _grafana.list_alert_rules()
+        items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+        await _grafana.rebuild_notification_policy(items)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+
+    return {"uid": uid, "contact_uids": req.contact_uids}
+
+
+@app.delete("/api/recipients/{uid}", dependencies=[Depends(require_auth)])
+async def delete_recipient(uid: str) -> dict:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
+        raise HTTPException(status_code=400, detail="Invalid recipient UID")
+    try:
+        await _grafana.delete_contact_point(uid)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Recipient not found")
+        raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
     return {"deleted": True}
 
 

@@ -4,6 +4,7 @@ import httpx
 
 # Prometheus datasource UID — hardcoded, defined in provisioning/datasources/prometheus.yml
 PROMETHEUS_DS_UID = "P1809F7CD0C75ACF3"
+BASIC_SEVERITY = "warning"
 
 # Reverse map from Grafana evaluator type back to display symbol
 GRAFANA_TYPE_TO_SYMBOL: dict[str, str] = {
@@ -103,17 +104,110 @@ class GrafanaClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def delete_alert_rule(self, uid: str) -> None:
-        """DELETE an alert rule. Raises ValueError if the rule is provisioned."""
+    async def set_alert_enabled(self, uid: str, enabled: bool) -> None:
+        """Enable/disable an alert by updating isPaused via provisioning API."""
         rule = await self.get_alert_rule(uid)
-        if rule.get("provenance") == "file":
-            raise PermissionError("Cannot delete a provisioned (baseline) alert")
+        rule["isPaused"] = not enabled
+        # Strip read-only provenance field — Grafana rejects PUT if it's present
+        rule.pop("provenance", None)
 
         headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
         async with httpx.AsyncClient(
             base_url=self.base_url, headers=headers, timeout=10.0
         ) as client:
-            resp = await client.delete(f"/api/v1/provisioning/alert-rules/{uid}")
+            resp = await client.put(f"/api/v1/provisioning/alert-rules/{uid}", json=rule)
+            resp.raise_for_status()
+
+    async def set_alert_notify_to(self, uid: str, contact_uids: list[str]) -> None:
+        """Set the notify_to routing label on an alert rule."""
+        rule = await self.get_alert_rule(uid)
+        labels = rule.get("labels", {})
+        if contact_uids:
+            labels["notify_to"] = ",".join(contact_uids)
+        else:
+            labels.pop("notify_to", None)
+        rule["labels"] = labels
+        rule.pop("provenance", None)
+        headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=headers, timeout=10.0
+        ) as client:
+            resp = await client.put(
+                f"/api/v1/provisioning/alert-rules/{uid}", json=rule
+            )
+            resp.raise_for_status()
+
+    async def rebuild_notification_policy(
+        self, alert_items: list[dict]
+    ) -> None:
+        """Regenerate the Grafana notification policy so that:
+        - Alerts with a notify_to label go only to the listed contact points.
+        - Alerts without notify_to fall through to the default catch-all.
+        """
+        # Collect which contact UIDs are actively referenced
+        active_uids: set[str] = set()
+        for item in alert_items:
+            for uid in item.get("notify_to", []):
+                if uid:
+                    active_uids.add(uid)
+
+        # Get contact point name for every known UID
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            cp_resp = await client.get("/api/v1/provisioning/contact-points")
+            cp_resp.raise_for_status()
+            uid_to_name = {
+                cp.get("uid", ""): cp.get("name", "")
+                for cp in cp_resp.json()
+            }
+
+        # Per-recipient routes: match notify_to label, continue so multiple
+        # recipients can all fire on the same alert.
+        per_recipient: list[dict] = []
+        for uid in sorted(active_uids):
+            name = uid_to_name.get(uid)
+            if name:
+                per_recipient.append({
+                    "receiver": name,
+                    "continue": True,
+                    "object_matchers": [["notify_to", "=~", f".*{uid}.*"]],
+                })
+
+        # Catch-all routes — only fire when notify_to is absent or empty.
+        # When per_recipient is non-empty we add the notify_to!~'.+' guard so
+        # assigned alerts don't also hit the catch-all.
+        if per_recipient:
+            catch_all: list[dict] = [
+                {
+                    "receiver": "lab-slack",
+                    "continue": True,
+                    "object_matchers": [["notify_to", "!~", ".+"]],
+                },
+                {
+                    "receiver": "lab-email",
+                    "object_matchers": [["notify_to", "!~", ".+"]],
+                },
+            ]
+        else:
+            catch_all = [
+                {"receiver": "lab-slack", "continue": True},
+                {"receiver": "lab-email"},
+            ]
+
+        policy = {
+            "receiver": "lab-email",
+            "group_by": ["alertname", "fridge"],
+            "group_wait": "30s",
+            "group_interval": "5m",
+            "repeat_interval": "4h",
+            "routes": per_recipient + catch_all,
+        }
+        headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=headers, timeout=10.0
+        ) as client:
+            resp = await client.put("/api/v1/provisioning/policies", json=policy)
             resp.raise_for_status()
 
     # ── Folders ───────────────────────────────────────────────────────────────
@@ -166,6 +260,15 @@ class GrafanaClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def delete_contact_point(self, uid: str) -> None:
+        """DELETE a contact point by UID."""
+        headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=headers, timeout=10.0
+        ) as client:
+            resp = await client.delete(f"/api/v1/provisioning/contact-points/{uid}")
+            resp.raise_for_status()
+
     # ── Rule payload builder ──────────────────────────────────────────────────
 
     @staticmethod
@@ -177,7 +280,6 @@ class GrafanaClient:
         grafana_operator: str,
         threshold: float,
         for_duration: str,
-        severity: str,
         folder_uid: str,
     ) -> dict:
         """Construct the Grafana alert rule JSON body from simplified inputs.
@@ -198,12 +300,27 @@ class GrafanaClient:
                 },
             },
             {
+                # Reduce the time-series to a single scalar before thresholding.
+                # Without this step Grafana raises "looks like time series data,
+                # only reduced data can be alerted on."
+                "refId": "B",
+                "relativeTimeRange": {"from": 300, "to": 0},
+                "datasourceUid": "__expr__",
+                "model": {
+                    "type": "reduce",
+                    "expression": "A",
+                    "refId": "B",
+                    "reducer": "last",
+                    "settings": {"mode": "dropNN"},
+                },
+            },
+            {
                 "refId": "C",
                 "relativeTimeRange": {"from": 300, "to": 0},
                 "datasourceUid": "__expr__",
                 "model": {
                     "type": "threshold",
-                    "expression": "A",
+                    "expression": "B",
                     "refId": "C",
                     "conditions": [
                         {
@@ -227,13 +344,14 @@ class GrafanaClient:
             "noDataState": "NoData",
             "execErrState": "Error",
             "labels": {
-                "severity": severity,
+                "severity": BASIC_SEVERITY,
                 "fridge": fridge,
                 "managed_by": "alert-api",
+                "rulename": title,
             },
             "annotations": {
                 "summary": (
-                    f"{fridge} {metric} is {{{{ $values.A }}}} "
+                    f"{fridge} {metric} is {{{{ $values.B }}}} "
                     f"(threshold: {symbol} {threshold})"
                 )
             },
@@ -268,6 +386,8 @@ class GrafanaClient:
             pass
 
         labels = rule.get("labels", {})
+        raw_notify = labels.get("notify_to", "")
+        notify_to = [u.strip() for u in raw_notify.split(",") if u.strip()]
         return {
             "uid": rule.get("uid", ""),
             "title": rule.get("title", ""),
@@ -275,7 +395,8 @@ class GrafanaClient:
             "metric": metric,
             "operator": operator,
             "threshold": threshold,
-            "severity": labels.get("severity", ""),
+            "enabled": not bool(rule.get("isPaused", False)),
             "provisioned": rule.get("provenance") == "file",
             "state": rule.get("_state", "unknown"),
+            "notify_to": notify_to,
         }
