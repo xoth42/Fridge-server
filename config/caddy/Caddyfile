@@ -21,6 +21,7 @@
     # No separate basicauth or injected bearer token needed.
 
     handle /alerts/api/* {
+        uri strip_prefix /alerts
         reverse_proxy alert-api:8000
     }
 
