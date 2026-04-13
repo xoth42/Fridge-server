@@ -53,8 +53,16 @@
           <thead>
             <tr>
               <th>Name</th>
-              <th>Status</th>
-              <th>Fridge</th>
+              <th>
+                <button type="button" class="th-sort" id="sort-status" onclick="setAlertSort('status')" aria-label="Sort by status">
+                  Status <span id="sort-status-ind" class="th-sort-ind"></span>
+                </button>
+              </th>
+              <th>
+                <button type="button" class="th-sort" id="sort-fridge" onclick="setAlertSort('fridge')" aria-label="Sort by fridge">
+                  Fridge <span id="sort-fridge-ind" class="th-sort-ind"></span>
+                </button>
+              </th>
               <th class="col-metric">Metric</th>
               <th class="col-operator">Condition</th>
               <th>Current</th>

@@ -8,18 +8,18 @@ contactPoints:
         type: email
         settings:
           addresses: $ALERT_EMAIL_TO
-          singleEmail: true
+          singleEmail: false
           subject: >-
             {{ or .CommonLabels.rulename .CommonLabels.alertname "Alert" }}
             — {{ or .CommonLabels.fridge .CommonLabels.instance "Unknown" }}
           message: |-
             {{ range .Alerts -}}
-            <b>Rule:</b> {{ or .Labels.rulename .Labels.alertname "Alert" }}<br>
-            <b>Fridge:</b> {{ or .Labels.fridge .Labels.instance "Unknown" }}<br>
+            {{ or .Labels.rulename .Labels.alertname "Alert" }}
+            {{ or .Labels.fridge .Labels.instance "Unknown" }}
             {{ if .Annotations.summary -}}
-            <b>Summary:</b> {{ .Annotations.summary }}<br>
+            {{ .Annotations.summary }}
             {{ end -}}
-            <br>
+            
             {{ end -}}
 
   - orgId: 1

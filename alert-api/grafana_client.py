@@ -1,5 +1,6 @@
 """Thin async wrapper around the Grafana HTTP API used by alert-api."""
 
+import json
 import httpx
 
 # Prometheus datasource UID — hardcoded, defined in provisioning/datasources/prometheus.yml
@@ -104,43 +105,95 @@ class GrafanaClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def set_alert_enabled(self, uid: str, enabled: bool) -> None:
-        """Enable/disable an alert by PUT-ing back only the writable fields.
-
-        Grafana 11's provisioning API has no PATCH/pause shortcut — the only
-        way to flip isPaused is a full PUT.  We must NOT echo back read-only
-        fields (id, provenance, updated); Grafana silently ignores the entire
-        request when those are present, producing a 200 that changes nothing.
-        """
-        rule = await self.get_alert_rule(uid)
-
-        # Build a clean body containing only fields the PUT endpoint accepts.
-        put_payload: dict = {
-            "title":        rule["title"],
-            "ruleGroup":    rule["ruleGroup"],
-            "folderUID":    rule["folderUID"],
-            "for":          rule["for"],
-            "condition":    rule["condition"],
-            "data":         rule["data"],
-            "labels":       rule.get("labels", {}),
-            "annotations":  rule.get("annotations", {}),
-            "noDataState":  rule.get("noDataState", "NoData"),
-            "execErrState": rule.get("execErrState", "Error"),
-            "isPaused":     not enabled,
-        }
-        # Pass through optional fields if Grafana returned them
-        for optional in ("notification_settings", "record"):
-            if optional in rule:
-                put_payload[optional] = rule[optional]
-
+    async def delete_alert_rule(self, uid: str) -> None:
+        """DELETE an alert rule by UID."""
         headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
         async with httpx.AsyncClient(
             base_url=self.base_url, headers=headers, timeout=10.0
         ) as client:
-            resp = await client.put(
-                f"/api/v1/provisioning/alert-rules/{uid}", json=put_payload
+            resp = await client.delete(f"/api/v1/provisioning/alert-rules/{uid}")
+            resp.raise_for_status()
+
+    # ── Disabled-rule store (Grafana annotations) ─────────────────────────────
+    #
+    # We use Grafana's own annotation store as a persistent KV store.
+    # Each disabled rule is stored as a global annotation with:
+    #   tags: ["disabled-alert-rule", "disabled-alert:<uid>"]
+    #   text: full Grafana rule JSON
+    #
+    # On re-enable the rule is POSTed back with its original UID so nothing
+    # in the UI needs to change.
+
+    _DISABLED_TAG = "disabled-alert-rule"
+
+    def _disabled_uid_tag(self, uid: str) -> str:
+        return f"disabled-alert:{uid}"
+
+    async def store_disabled_rule(self, uid: str, rule: dict) -> None:
+        """Save a rule's JSON into a Grafana annotation (replaces any existing)."""
+        await self._delete_disabled_annotation(uid)  # avoid duplicates
+        payload = {
+            "tags": [self._DISABLED_TAG, self._disabled_uid_tag(uid)],
+            "text": json.dumps(rule),
+        }
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            resp = await client.post("/api/annotations", json=payload)
+            resp.raise_for_status()
+
+    async def pop_disabled_rule(self, uid: str) -> dict | None:
+        """Return the stored rule dict and remove the annotation, or None."""
+        ann = await self._find_disabled_annotation(uid)
+        if ann is None:
+            return None
+        ann_id, rule = ann
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            await client.delete(f"/api/annotations/{ann_id}")
+        return rule
+
+    async def list_disabled_rules(self) -> list[dict]:
+        """Return all disabled rule dicts from annotations."""
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            resp = await client.get(
+                "/api/annotations",
+                params={"tags": self._DISABLED_TAG, "limit": 500},
             )
             resp.raise_for_status()
+            rules = []
+            for item in resp.json():
+                try:
+                    rules.append(json.loads(item["text"]))
+                except Exception:
+                    pass
+            return rules
+
+    async def _find_disabled_annotation(self, uid: str) -> tuple[int, dict] | None:
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            resp = await client.get(
+                "/api/annotations",
+                params={"tags": self._disabled_uid_tag(uid), "limit": 1},
+            )
+            resp.raise_for_status()
+            items = resp.json()
+            if not items:
+                return None
+            return items[0]["id"], json.loads(items[0]["text"])
+
+    async def _delete_disabled_annotation(self, uid: str) -> None:
+        ann = await self._find_disabled_annotation(uid)
+        if ann:
+            ann_id, _ = ann
+            async with httpx.AsyncClient(
+                base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+            ) as client:
+                await client.delete(f"/api/annotations/{ann_id}")
 
     async def set_alert_notify_to(self, uid: str, contact_uids: list[str]) -> None:
         """Set the notify_to routing label on an alert rule."""
@@ -270,7 +323,7 @@ class GrafanaClient:
             "type": "email",
             "settings": {
                 "addresses": email,
-                "singleEmail": True,
+                "singleEmail": False,
             },
             "disableResolveMessage": False,
         }

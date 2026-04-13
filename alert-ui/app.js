@@ -11,6 +11,7 @@
 let authHeader = sessionStorage.getItem('fridge_auth') || '';
 let metricsData = { metrics: [], fridges: [], operators: [] };
 let refreshTimer = null;
+let alertSort = { key: 'status', dir: 'desc' };
 
 const ALERT_TEMPLATES = [
   { name: 'Cooling Water too Hot',    fridge: 'fridge-dodo', metric: 'cpatempwi_celsius', operator: '>',  threshold: 26 },
@@ -236,14 +237,78 @@ function fmtValue(val, metricName) {
   return `${formatted} ${unit}`.trim();
 }
 
+function statusRank(alert) {
+  if (!alert.enabled) return 0;
+  if (alert.state === 'firing') return 3;
+  if (alert.state === 'pending') return 2;
+  if (alert.state === 'normal') return 1;
+  return 0;
+}
+
+function sortAlerts(alerts) {
+  const sorted = [...alerts];
+  const dir = alertSort.dir === 'asc' ? 1 : -1;
+
+  sorted.sort((a, b) => {
+    if (alertSort.key === 'status') {
+      const diff = (statusRank(a) - statusRank(b)) * dir;
+      if (diff !== 0) return diff;
+      return a.title.localeCompare(b.title);
+    }
+    if (alertSort.key === 'fridge') {
+      const diff = a.fridge.localeCompare(b.fridge) * dir;
+      if (diff !== 0) return diff;
+      return a.title.localeCompare(b.title);
+    }
+    return 0;
+  });
+
+  return sorted;
+}
+
+function renderSortHeaders() {
+  const statusBtn = document.getElementById('sort-status');
+  const fridgeBtn = document.getElementById('sort-fridge');
+  const statusInd = document.getElementById('sort-status-ind');
+  const fridgeInd = document.getElementById('sort-fridge-ind');
+  if (!statusBtn || !fridgeBtn || !statusInd || !fridgeInd) return;
+
+  statusBtn.classList.remove('active');
+  fridgeBtn.classList.remove('active');
+  statusInd.textContent = '';
+  fridgeInd.textContent = '';
+
+  const arrow = alertSort.dir === 'asc' ? '↑' : '↓';
+  if (alertSort.key === 'status') {
+    statusBtn.classList.add('active');
+    statusInd.textContent = arrow;
+  } else if (alertSort.key === 'fridge') {
+    fridgeBtn.classList.add('active');
+    fridgeInd.textContent = arrow;
+  }
+}
+
+function setAlertSort(key) {
+  if (alertSort.key === key) {
+    alertSort.dir = alertSort.dir === 'desc' ? 'asc' : 'desc';
+  } else {
+    alertSort.key = key;
+    alertSort.dir = 'desc';
+  }
+  renderSortHeaders();
+  renderAlerts(window._alertsCache || []);
+}
+
 function renderAlerts(alerts) {
   const tbody = document.getElementById('alerts-body');
-  if (alerts.length === 0) {
+  const sortedAlerts = sortAlerts(alerts);
+  renderSortHeaders();
+  if (sortedAlerts.length === 0) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No alerts configured.</td></tr>';
     return;
   }
 
-  tbody.innerHTML = alerts.map((a) => {
+  tbody.innerHTML = sortedAlerts.map((a) => {
     const stateBadge = !a.enabled
       ? '<span class="badge badge-disabled">&#9646;&#9646; Disabled</span>'
       : ({
@@ -258,14 +323,17 @@ function renderAlerts(alerts) {
 
     const condition = a.operator ? `${escHtml(a.operator)} ${a.threshold}` : '—';
 
-    const toggleBtn = `<button class="btn btn-sm ${a.enabled ? 'btn-warn' : 'btn-primary'}" onclick="toggleAlert('${escHtml(a.uid)}', ${!a.enabled}, this)">${a.enabled ? 'Disable' : 'Enable'}</button>`;
+    const toggleBtn = `<button class="btn btn-sm ${a.enabled ? 'btn-warn' : 'btn-primary'}" onclick="event.stopPropagation(); toggleAlert('${escHtml(a.uid)}', ${!a.enabled}, this)">${a.enabled ? 'Disable' : 'Enable'}</button>`;
 
     const deleteBtn = a.provisioned
       ? ''
-      : `<button class="btn btn-danger btn-sm" onclick="deleteAlert('${escHtml(a.uid)}', this)">Delete</button>`;
+      : `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteAlert('${escHtml(a.uid)}', this)">Delete</button>`;
 
-    return `<tr>
-      <td>${escHtml(a.title)}</td>
+    const pencilIcon = `<span class="inline-pencil">✎</span>`;
+    const titleWithIcon = `<span class="alert-title-cell">${escHtml(a.title)}${pencilIcon}</span>`;
+
+    return `<tr onclick="editAlert(${escHtml(JSON.stringify(a))})" class="alert-row-editable">
+      <td>${titleWithIcon}</td>
       <td>${stateBadge}</td>
       <td>${escHtml(a.fridge)}</td>
       <td class="col-metric">${escHtml(a.metric)}</td>
@@ -358,6 +426,24 @@ async function deleteAlert(uid, btn) {
   }
 }
 
+// ── Edit existing alert (populate form with its values) ────────────────────────
+
+function editAlert(alert) {
+  // Populate form fields with this alert's values
+  document.getElementById('f-name').value = alert.title || '';
+  document.getElementById('f-fridge').value = alert.fridge || '';
+  populateMetricDropdown(alert.fridge);
+  document.getElementById('f-metric').value = alert.metric || '';
+  document.getElementById('f-operator').value = alert.operator || '';
+  document.getElementById('f-threshold').value = alert.threshold || '';
+
+  // Reset template selector since we're now using an existing rule as template
+  templateIndex = -1;
+  const tplBtn = document.getElementById('btn-use-template');
+  tplBtn.textContent = 'Use Template';
+  tplBtn.className = 'btn btn-secondary btn-sm';
+}
+
 // ── Alert templates ──────────────────────────────────────────────────────────
 
 document.getElementById('btn-use-template').addEventListener('click', () => {
@@ -385,6 +471,38 @@ document.getElementById('btn-use-template').addEventListener('click', () => {
   }
 });
 
+// Increment or append a number to a name (e.g. "Cooling Water" → "Cooling Water 1", or "Cooling Water 1" → "Cooling Water 2")
+function incrementAlertName(name) {
+  const match = name.match(/^(.+?)\s+(\d+)$/);
+  if (match) {
+    const base = match[1];
+    const num = parseInt(match[2], 10);
+    return `${base} ${num + 1}`;
+  }
+  return `${name} 1`;
+}
+
+// Pick a conflict-free name based on current alert titles.
+function nextAvailableAlertName(name, alerts = window._alertsCache || []) {
+  const match = name.match(/^(.+?)\s+(\d+)$/);
+  const base = match ? match[1] : name;
+  let next = match ? (parseInt(match[2], 10) + 1) : 1;
+
+  const taken = new Set();
+  for (const a of alerts) {
+    const title = (a && a.title) ? String(a.title) : '';
+    if (title === base) {
+      taken.add(0);
+      continue;
+    }
+    const m = title.match(new RegExp(`^${base.replace(/[.*+?^${}()|[\\]\\]/g, '\\\\$&')}\\s+(\\d+)$`));
+    if (m) taken.add(parseInt(m[1], 10));
+  }
+
+  while (taken.has(next)) next += 1;
+  return `${base} ${next}`;
+}
+
 // ── Create alert form ────────────────────────────────────────────────────────
 
 document.getElementById('create-form').addEventListener('submit', async (e) => {
@@ -394,7 +512,7 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
   btn.disabled = true;
   status.textContent = 'Creating…';
 
-  const body = {
+  let body = {
     name: document.getElementById('f-name').value.trim(),
     fridge: document.getElementById('f-fridge').value,
     metric: document.getElementById('f-metric').value,
@@ -403,34 +521,57 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
     for_duration: document.getElementById('f-duration').value,
   };
 
-  try {
-    const resp = await apiFetch('/alerts', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json().catch(() => ({}));
-    if (resp.ok) {
-      toast(`Alert "${data.title}" created.`);
-      e.target.reset();
-      populateFridgeDropdown();
-      document.getElementById('f-metric').innerHTML =
-        '<option value="">— select fridge first —</option>';
-      templateIndex = -1;
-      const tplBtn = document.getElementById('btn-use-template');
-      tplBtn.textContent = 'Use Template';
-      tplBtn.className = 'btn btn-secondary btn-sm';
-      status.textContent = '';
-      await loadAlerts();
-    } else {
-      const msg = data.detail || `Error ${resp.status}`;
+  // Try to create with original name; if conflict, retry with incremented name
+  const attemptCreate = async (attemptBody, retryCount = 0) => {
+    const MAX_RETRIES = 50;  // Allow up to 50 name increments
+    try {
+      const resp = await apiFetch('/alerts', {
+        method: 'POST',
+        body: JSON.stringify(attemptBody),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        toast(`Alert "${data.title}" created.`);
+        e.target.reset();
+        populateFridgeDropdown();
+        document.getElementById('f-metric').innerHTML =
+          '<option value="">— select fridge first —</option>';
+        templateIndex = -1;
+        const tplBtn = document.getElementById('btn-use-template');
+        tplBtn.textContent = 'Use Template';
+        tplBtn.className = 'btn btn-secondary btn-sm';
+        status.textContent = '';
+        await loadAlerts();
+        return true;
+      }
+
+      const errText = `${data?.detail || ''} ${data?.message || ''}`.toLowerCase();
+      const isNameConflict = errText.includes('should be unique') || errText.includes('alert-rule.conflict');
+      if (isNameConflict && retryCount < MAX_RETRIES) {
+        // Conflict: title already exists, increment and retry
+        const newName = retryCount === 0
+          ? nextAvailableAlertName(attemptBody.name)
+          : incrementAlertName(attemptBody.name);
+        status.textContent = `Name exists, trying "${newName}"…`;
+        attemptBody.name = newName;
+        return attemptCreate(attemptBody, retryCount + 1);
+      }
+
+      const msg = data.detail || data.message || `Error ${resp.status}`;
       status.textContent = msg;
       toast(msg, 'error');
+      return false;
+    } catch (err) {
+      if (err.message !== 'Unauthenticated') {
+        status.textContent = 'Request failed.';
+        toast('Request failed.', 'error');
+      }
+      return false;
     }
-  } catch (err) {
-    if (err.message !== 'Unauthenticated') {
-      status.textContent = 'Request failed.';
-      toast('Request failed.', 'error');
-    }
+  };
+
+  try {
+    await attemptCreate(body);
   } finally {
     btn.disabled = false;
   }

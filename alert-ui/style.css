@@ -116,8 +116,50 @@ thead th {
   white-space: nowrap;
 }
 
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.th-sort-ind {
+  min-width: 12px;
+  color: #6b7280;
+}
+
+.th-sort.active .th-sort-ind {
+  color: #1f2937;
+}
+
 tbody tr:nth-child(even) { background: #fafbfd; }
 tbody tr:hover { background: #f0f3ff; }
+
+.alert-row-editable:hover { background: #eef1ff; cursor: pointer; }
+
+.alert-title-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 2px 0;
+}
+
+.inline-pencil {
+  opacity: 0;
+  transition: opacity .15s;
+  color: #000;
+  font-size: 20px;
+}
+
+.alert-row-editable:hover .inline-pencil {
+  opacity: 1;
+}
 
 tbody td {
   padding: 9px 12px;

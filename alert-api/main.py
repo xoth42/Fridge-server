@@ -168,6 +168,19 @@ async def list_alerts() -> list[AlertListItem]:
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
+    # Merge in disabled rules from the Grafana annotation store.
+    # Mark each as isPaused so parse_rule returns enabled=False.
+    try:
+        disabled = await _grafana.list_disabled_rules()
+        active_uids = {r.get("uid") for r in raw_rules}
+        for rule in disabled:
+            if rule.get("uid") not in active_uids:
+                rule["isPaused"] = True
+                rule["_state"] = "unknown"
+                raw_rules.append(rule)
+    except Exception:
+        pass  # don't break the list if annotation store is unavailable
+
     items = [AlertListItem(**GrafanaClient.parse_rule(r)) for r in raw_rules]
     values = await asyncio.gather(*[_fetch_prometheus_value(i.metric, i.fridge) for i in items])
     for item, val in zip(items, values):
@@ -241,17 +254,50 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
 
 @app.patch("/api/alerts/{uid}/enabled", dependencies=[Depends(require_auth)])
 async def set_alert_enabled(uid: str, req: SetAlertEnabledRequest) -> dict:
-    # Validate UID is a safe identifier (no path traversal)
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
         raise HTTPException(status_code=400, detail="Invalid alert UID")
 
     try:
-        await _grafana.set_alert_enabled(uid, req.enabled)
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+        if req.enabled:
+            # Restore: load from annotation store → POST to Grafana with same UID.
+            rule = await _grafana.pop_disabled_rule(uid)
+            if rule is None:
+                raise HTTPException(status_code=404, detail="Alert not found in disabled store")
+            # Strip read-only fields; keep uid so Grafana reuses it.
+            for field in ("id", "provenance", "updated"):
+                rule.pop(field, None)
+            rule["isPaused"] = False
+            try:
+                await _grafana.create_alert_rule(rule)
+            except httpx.HTTPStatusError as exc:
+                # Roll back: put it back in the store so the rule isn't lost.
+                await _grafana.store_disabled_rule(uid, rule)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Grafana restore error {exc.response.status_code}: {exc.response.text}",
+                )
+        else:
+            # Disable: save to annotation store → DELETE from Grafana.
+            try:
+                rule = await _grafana.get_alert_rule(uid)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    raise HTTPException(status_code=404, detail="Alert not found")
+                raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+
+            if rule.get("provenance") == "file":
+                raise HTTPException(status_code=403, detail="Cannot disable a provisioned baseline alert")
+
+            await _grafana.store_disabled_rule(uid, rule)
+            try:
+                await _grafana.delete_alert_rule(uid)
+            except httpx.HTTPStatusError as exc:
+                await _grafana._delete_disabled_annotation(uid)  # rollback
+                raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Alert not found")
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
     return {"uid": uid, "enabled": req.enabled}
@@ -262,15 +308,16 @@ async def delete_alert(uid: str) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
         raise HTTPException(status_code=400, detail="Invalid alert UID")
 
+    # A disabled rule only exists in the annotation store, not in Grafana.
+    disabled_rule = await _grafana.pop_disabled_rule(uid)
+    if disabled_rule is not None:
+        return {"deleted": True}
+
     try:
         rule = await _grafana.get_alert_rule(uid)
         if rule.get("provenance") == "file":
             raise HTTPException(status_code=403, detail="Cannot delete a baseline alert")
-        headers = {"Authorization": f"Bearer {GRAFANA_SA_TOKEN}", "X-Disable-Provenance": "true"}
-        import httpx as _httpx
-        async with _httpx.AsyncClient(base_url=GRAFANA_URL, headers=headers, timeout=10.0) as client:
-            resp = await client.delete(f"/api/v1/provisioning/alert-rules/{uid}")
-            resp.raise_for_status()
+        await _grafana.delete_alert_rule(uid)
     except HTTPException:
         raise
     except httpx.HTTPStatusError as exc:
