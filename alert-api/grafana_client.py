@@ -224,8 +224,8 @@ class GrafanaClient:
             "condition": "C",
             "data": data,
             "for": for_duration,
-            "noDataState": "Alerting",
-            "execErrState": "Alerting",
+            "noDataState": "NoData",
+            "execErrState": "Error",
             "labels": {
                 "severity": severity,
                 "fridge": fridge,

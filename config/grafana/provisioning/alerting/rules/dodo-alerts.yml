@@ -14,7 +14,7 @@ groups:
         execErrState: Alerting
         labels:
           severity: critical
-          fridge: dodo
+          fridge: fridge-dodo
           tier: baseline
         annotations:
           summary: "Dodo MXC temp is {{ $$values.A }} K (threshold: 0.030 K)"

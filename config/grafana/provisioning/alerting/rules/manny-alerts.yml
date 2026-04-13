@@ -14,7 +14,7 @@ groups:
         execErrState: Alerting
         labels:
           severity: critical
-          fridge: manny
+          fridge: fridge-manny
           tier: baseline
         annotations:
           summary: "Manny MXC temp is {{ $$values.A }} K (threshold: 0.030 K)"
