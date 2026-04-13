@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fridge Alert Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── Login modal ──────────────────────────────────────────────────────────── -->
+<div id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="login-box">
+    <h2 id="login-title">Sign in</h2>
+    <p>Use your Grafana username and password.</p>
+    <form id="login-form">
+      <div class="form-group" style="margin-bottom:12px">
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text" autocomplete="username" required />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
+      <div class="login-error" id="login-error"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Header ───────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <h1>&#10052; Fridge Alert Manager</h1>
+    <div class="header-user">
+      <span id="header-username"></span>
+      <button class="btn-link" id="btn-signout">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ── Alert list ─────────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Active Alerts</h2>
+      <span id="refresh-indicator" style="font-size:12px;color:#6b7280"></span>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap">
+        <table id="alerts-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Fridge</th>
+              <th class="col-metric">Metric</th>
+              <th class="col-operator">Condition</th>
+              <th>Severity</th>
+              <th>Status</th>
+              <th>Tier</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="alerts-body">
+            <tr class="empty-row"><td colspan="8">Loading&hellip;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Create alert form ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Create Alert</h2>
+    </div>
+    <div class="card-body">
+      <form id="create-form">
+        <div class="form-grid">
+
+          <div class="form-group">
+            <label for="f-name">Alert Name</label>
+            <input id="f-name" type="text" placeholder="e.g. Manny MXC too warm" maxlength="100" required />
+          </div>
+
+          <div class="form-group">
+            <label for="f-fridge">Fridge</label>
+            <select id="f-fridge" required>
+              <option value="">— select —</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="f-metric">Metric</label>
+            <select id="f-metric" required>
+              <option value="">— select fridge first —</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="f-operator">Operator</label>
+            <select id="f-operator" required>
+              <option value="">— select —</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="f-threshold">Threshold</label>
+            <input id="f-threshold" type="number" step="0.001" placeholder="0.030" required />
+          </div>
+
+          <div class="form-group">
+            <label for="f-duration">Duration</label>
+            <select id="f-duration">
+              <option value="1m">1 minute</option>
+              <option value="5m" selected>5 minutes</option>
+              <option value="10m">10 minutes</option>
+              <option value="30m">30 minutes</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="f-severity">Severity</label>
+            <select id="f-severity">
+              <option value="warning" selected>Warning</option>
+              <option value="critical">Critical</option>
+            </select>
+            <p class="form-hint">Notifications route to all recipients via the notification policy (based on severity).</p>
+          </div>
+
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btn-create">Create Alert</button>
+          <span id="create-status" style="font-size:13px;color:#6b7280"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Recipients panel ──────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Notification Recipients</h2>
+      <button class="collapse-toggle" id="recipient-toggle" aria-expanded="false">
+        &#43; Add recipient
+      </button>
+    </div>
+    <div class="card-body">
+      <!-- Add recipient form (collapsible) -->
+      <div class="collapse-content" id="recipient-form-wrap">
+        <form id="recipient-form" style="margin-bottom:16px">
+          <div class="form-grid" style="max-width:480px">
+            <div class="form-group">
+              <label for="r-name">Name</label>
+              <input id="r-name" type="text" maxlength="50" placeholder="Alice" required />
+            </div>
+            <div class="form-group">
+              <label for="r-email">Email</label>
+              <input id="r-email" type="email" placeholder="alice@lab.edu" required />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Add</button>
+            <span id="recipient-status" style="font-size:13px;color:#6b7280"></span>
+          </div>
+        </form>
+        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:14px" />
+      </div>
+
+      <!-- Recipient list -->
+      <ul class="recipient-list" id="recipient-list">
+        <li style="color:#6b7280">Loading&hellip;</li>
+      </ul>
+    </div>
+  </div>
+
+</div><!-- /.container -->
+
+<!-- ── Toast ────────────────────────────────────────────────────────────────── -->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

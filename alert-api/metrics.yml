@@ -1,0 +1,68 @@
+metrics:
+  - name: ch1_t_kelvin
+    label: "CH1 50K Flange Temperature"
+    unit: K
+  - name: ch2_t_kelvin
+    label: "CH2 4K Flange Temperature"
+    unit: K
+  - name: ch5_t_kelvin
+    label: "CH5 Still Temperature"
+    unit: K
+  - name: ch6_t_kelvin
+    label: "CH6 MXC Temperature"
+    unit: K
+  - name: ch9_t_kelvin
+    label: "CH9 CP Flange Temperature"
+    unit: K
+    fridges: [fridge-manny]
+  - name: flowmeter_mmol_per_s
+    label: "Mixture Flow Rate"
+    unit: mmol/s
+  - name: maxigauge_ch1_pressure_mbar
+    label: "Maxigauge CH1 Pressure"
+    unit: mbar
+  - name: maxigauge_ch2_pressure_mbar
+    label: "Maxigauge CH2 Pressure"
+    unit: mbar
+  - name: maxigauge_ch3_pressure_mbar
+    label: "Maxigauge CH3 Pressure"
+    unit: mbar
+  - name: maxigauge_ch4_pressure_mbar
+    label: "Maxigauge CH4 Pressure"
+    unit: mbar
+  - name: maxigauge_ch5_pressure_mbar
+    label: "Maxigauge CH5 Pressure"
+    unit: mbar
+  - name: maxigauge_ch6_pressure_mbar
+    label: "Maxigauge CH6 Pressure"
+    unit: mbar
+  - name: cpa_high_pressure_psi
+    label: "Compressor High Pressure"
+    unit: psi
+  - name: cpa_low_pressure_psi
+    label: "Compressor Low Pressure"
+    unit: psi
+  - name: cpatempwi_celsius
+    label: "Cooling Water Inlet Temp"
+    unit: "°C"
+  - name: cpatempwo_celsius
+    label: "Cooling Water Outlet Temp"
+    unit: "°C"
+  - name: heater_1_watts
+    label: "Heater 1 Power"
+    unit: W
+  - name: heater_2_watts
+    label: "Heater 2 Power"
+    unit: W
+
+fridges:
+  - id: fridge-manny
+    label: Manny
+  - id: fridge-dodo
+    label: Dodo
+
+operators:
+  - { symbol: ">",  grafana_type: gt }
+  - { symbol: "<",  grafana_type: lt }
+  - { symbol: ">=", grafana_type: gte }
+  - { symbol: "<=", grafana_type: lte }

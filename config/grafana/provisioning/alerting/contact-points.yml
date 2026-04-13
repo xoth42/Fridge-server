@@ -1,0 +1,25 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: lab-email
+    receivers:
+      - uid: cp-lab-email
+        type: email
+        settings:
+          addresses: $ALERT_EMAIL_TO
+          singleEmail: true
+
+  - orgId: 1
+    name: lab-slack
+    receivers:
+      - uid: cp-lab-slack
+        type: slack
+        settings:
+          url: $SLACK_WEBHOOK_URL
+          title: |-
+            [{{ $$labels.severity | toUpper }}] {{ $$labels.alertname }}
+          text: |-
+            *Fridge:* {{ $$labels.fridge }}
+            *Value:*  {{ $$values.A }}
+            {{ $$annotations.summary }}
