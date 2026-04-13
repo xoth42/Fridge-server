@@ -137,13 +137,23 @@ async def get_metrics() -> MetricsResponse:
 
 async def _fetch_prometheus_value(metric: str, fridge: str) -> Optional[float]:
     try:
-        query = f'{metric}{{instance="{fridge}"}}'
         async with httpx.AsyncClient(base_url=PROMETHEUS_URL, timeout=5.0) as client:
-            resp = await client.get("/api/v1/query", params={"query": query})
+            # First try the exact selector used in alert expressions.
+            exact_query = f'{metric}{{instance="{fridge}"}}'
+            resp = await client.get("/api/v1/query", params={"query": exact_query})
             if resp.status_code == 200:
                 results = resp.json().get("data", {}).get("result", [])
                 if results:
                     return float(results[0]["value"][1])
+
+            # Fallback: query by metric and choose a series tied to this fridge.
+            resp = await client.get("/api/v1/query", params={"query": metric})
+            if resp.status_code == 200:
+                results = resp.json().get("data", {}).get("result", [])
+                for series in results:
+                    labels = series.get("metric", {})
+                    if labels.get("instance") == fridge or labels.get("fridge") == fridge:
+                        return float(series["value"][1])
     except Exception:
         pass
     return None
