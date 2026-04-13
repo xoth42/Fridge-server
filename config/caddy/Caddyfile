@@ -15,6 +15,21 @@
         }
     }
 
+    # ── Alert management ────────────────────────────────────────────────────
+    # Auth: the frontend collects Grafana credentials and sends them as HTTP
+    # Basic auth; alert-api validates them against Grafana /api/user.
+    # No separate basicauth or injected bearer token needed.
+
+    handle /alerts/api/* {
+        reverse_proxy alert-api:8000
+    }
+
+    handle /alerts/* {
+        root * /srv/alert-ui
+        file_server
+    }
+
+    # ── Grafana (catch-all) ─────────────────────────────────────────────────
     reverse_proxy grafana:3000
 
     header {

@@ -226,6 +226,9 @@ wait_for "Prometheus"   "http://localhost:9090/-/ready"   "200"
 wait_for "Pushgateway"  "http://localhost:9091/-/healthy"  "200"
 wait_for "Alertmanager" "http://localhost:9093/-/healthy"  "200"
 wait_for "Grafana"      "http://localhost:3000/api/health" "200"
+if [[ "$IS_CI" != "true" ]]; then
+  wait_for "Alert API" "http://localhost:8000/api/health" "200"
+fi
 
 # =============================================================================
 # 8. Create lab user account (production only)
@@ -264,6 +267,51 @@ if [[ "$IS_CI" != "true" ]] && [[ -n "${LAB_USER_LOGIN:-}" ]]; then
 fi
 
 # =============================================================================
+# 8b. Grafana service account for alert-api
+# =============================================================================
+if [[ "$IS_CI" != "true" ]] && [[ -z "${GRAFANA_SA_TOKEN:-}" ]]; then
+  step "Alert API service account"
+
+  GRAFANA_ADMIN="${GF_ADMIN_USER:-admin}:${GF_ADMIN_PASSWORD}"
+
+  # Check if the service account already exists
+  SA_EXISTS=$(curl -s -u "$GRAFANA_ADMIN" \
+    "http://localhost:3000/api/serviceaccounts/search?query=alert-api" \
+    | jq -r '.serviceAccounts | length' 2>/dev/null || echo "0")
+
+  if [[ "$SA_EXISTS" == "0" ]]; then
+    SA_ID=$(curl -s -X POST -u "$GRAFANA_ADMIN" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"alert-api","role":"Editor","isDisabled":false}' \
+      "http://localhost:3000/api/serviceaccounts" | jq -r '.id')
+
+    if [[ -n "$SA_ID" && "$SA_ID" != "null" ]]; then
+      SA_TOKEN=$(curl -s -X POST -u "$GRAFANA_ADMIN" \
+        -H "Content-Type: application/json" \
+        -d '{"name":"alert-api-token"}' \
+        "http://localhost:3000/api/serviceaccounts/${SA_ID}/tokens" | jq -r '.key')
+
+      if [[ -n "$SA_TOKEN" && "$SA_TOKEN" != "null" ]]; then
+        echo "" >> .env
+        echo "GRAFANA_SA_TOKEN=${SA_TOKEN}" >> .env
+        export GRAFANA_SA_TOKEN="${SA_TOKEN}"
+        ok "Grafana service account 'alert-api' created and token stored in .env."
+        # Restart alert-api so it picks up the new token
+        if [[ "$IS_CI" != "true" ]]; then
+          docker compose restart alert-api >/dev/null 2>&1 || true
+        fi
+      else
+        warn "Failed to create service account token — alert-api will not be able to connect to Grafana."
+      fi
+    else
+      warn "Failed to create service account — alert-api will not be able to connect to Grafana."
+    fi
+  else
+    ok "Grafana service account 'alert-api' already exists — skipping."
+  fi
+fi
+
+# =============================================================================
 # 9. Summary
 # =============================================================================
 step "Done"
@@ -277,6 +325,7 @@ echo -e "${GREEN}${BOLD}╚═════════════════�
 echo ""
 if [[ "$IS_CI" != "true" ]]; then
   echo -e "  ${BOLD}Grafana (public):${NC}    ${GRAFANA_PUBLIC_URL:-https://${DOMAIN}}"
+  echo -e "  ${BOLD}Alert Manager:${NC}       ${GRAFANA_PUBLIC_URL:-https://${DOMAIN}}/alerts/"
 fi
 echo -e "  ${BOLD}Grafana (local):${NC}     http://localhost:3000"
 echo -e "  ${BOLD}Pushgateway:${NC}         http://${HOST_IP}:9091"
