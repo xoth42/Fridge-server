@@ -30,7 +30,8 @@ contactPoints:
         settings:
           url: $SLACK_WEBHOOK_URL
           title: >-
-            {{ .CommonLabels.alertname }}
+            {{ or .CommonLabels.rulename .CommonLabels.alertname "Alert" }}
+            — {{ or .CommonLabels.fridge .CommonLabels.instance "Unknown" }}
           text: |-
             {{ range .Alerts -}}
             {{ .Annotations.summary }}

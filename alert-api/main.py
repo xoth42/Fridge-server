@@ -357,6 +357,15 @@ async def delete_recipient(uid: str) -> dict:
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Recipient not found")
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+
+    # Rebuild policy so the deleted contact point is removed from catch-all routes.
+    try:
+        raw_rules = await _grafana.list_alert_rules()
+        items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+        await _grafana.rebuild_notification_policy(items)
+    except Exception:
+        pass
+
     return {"deleted": True}
 
 
@@ -387,8 +396,34 @@ async def create_recipient(req: CreateRecipientRequest) -> RecipientListItem:
             detail=f"Grafana error {exc.response.status_code}: {exc.response.text}",
         )
 
+    # Rebuild notification policy so the new contact point is included in
+    # the catch-all and starts receiving all unassigned alerts immediately.
+    try:
+        raw_rules = await _grafana.list_alert_rules()
+        items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+        await _grafana.rebuild_notification_policy(items)
+    except Exception:
+        pass  # non-fatal — policy will be updated on next assignment change
+
     return RecipientListItem(
         uid=created.get("uid", ""),
         name=created.get("name", req.name),
         type=created.get("type", "email"),
     )
+
+
+@app.post("/api/recipients/sync-email-format", dependencies=[Depends(require_auth)])
+async def sync_email_contact_points_format() -> dict:
+    """One-shot remediation: set singleEmail=false on all email contact points."""
+    try:
+        result = await _grafana.sync_email_contact_points_single_email(enabled=False)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Grafana sync error {exc.response.status_code}: {exc.response.text}",
+        )
+
+    return {
+        "singleEmail": False,
+        **result,
+    }

@@ -228,16 +228,22 @@ class GrafanaClient:
                 if uid:
                     active_uids.add(uid)
 
-        # Get contact point name for every known UID
+        # Get all contact points — both for uid→name lookup and catch-all building.
         async with httpx.AsyncClient(
             base_url=self.base_url, headers=self._auth_headers, timeout=10.0
         ) as client:
             cp_resp = await client.get("/api/v1/provisioning/contact-points")
             cp_resp.raise_for_status()
-            uid_to_name = {
-                cp.get("uid", ""): cp.get("name", "")
-                for cp in cp_resp.json()
-            }
+            all_cps: list[dict] = cp_resp.json()
+
+        uid_to_name = {cp.get("uid", ""): cp.get("name", "") for cp in all_cps}
+
+        # All email contact point names — used to build the catch-all so that
+        # every configured recipient receives alerts with no explicit notify_to.
+        all_email_names: list[str] = [
+            cp["name"] for cp in all_cps
+            if cp.get("type") == "email" and cp.get("name")
+        ]
 
         # Per-recipient routes: match notify_to label, continue so multiple
         # recipients can all fire on the same alert.
@@ -251,26 +257,23 @@ class GrafanaClient:
                     "object_matchers": [["notify_to", "=~", f".*{uid}.*"]],
                 })
 
-        # Catch-all routes — only fire when notify_to is absent or empty.
-        # When per_recipient is non-empty we add the notify_to!~'.+' guard so
-        # assigned alerts don't also hit the catch-all.
-        if per_recipient:
-            catch_all: list[dict] = [
-                {
-                    "receiver": "lab-slack",
-                    "continue": True,
-                    "object_matchers": [["notify_to", "!~", ".+"]],
-                },
-                {
-                    "receiver": "lab-email",
-                    "object_matchers": [["notify_to", "!~", ".+"]],
-                },
-            ]
-        else:
-            catch_all = [
-                {"receiver": "lab-slack", "continue": True},
-                {"receiver": "lab-email"},
-            ]
+        # Catch-all routes — include ALL email contact points so every
+        # recipient gets alerts that have no explicit notify_to assignment.
+        # When per_recipient is non-empty, guard with notify_to!~'.+' so
+        # explicitly-assigned alerts don't also hit the catch-all.
+        guarded = bool(per_recipient)
+        catch_all: list[dict] = [
+            {
+                "receiver": "lab-slack",
+                "continue": True,
+                **({"object_matchers": [["notify_to", "!~", ".+"]]} if guarded else {}),
+            }
+        ]
+        for name in all_email_names:
+            route: dict = {"receiver": name, "continue": True}
+            if guarded:
+                route["object_matchers"] = [["notify_to", "!~", ".+"]]
+            catch_all.append(route)
 
         policy = {
             "receiver": "lab-email",
@@ -345,6 +348,65 @@ class GrafanaClient:
         ) as client:
             resp = await client.delete(f"/api/v1/provisioning/contact-points/{uid}")
             resp.raise_for_status()
+
+    async def sync_email_contact_points_single_email(self, enabled: bool = False) -> dict:
+        """Force-update all email contact points to set settings.singleEmail.
+
+        This is used as a one-shot remediation when existing contact points were
+        created with grouped email mode and need to be normalized.
+        """
+        headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+        updated = 0
+        skipped = 0
+        errors: list[dict] = []
+
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=headers, timeout=10.0
+        ) as client:
+            resp = await client.get("/api/v1/provisioning/contact-points")
+            resp.raise_for_status()
+            points: list[dict] = resp.json()
+
+            for cp in points:
+                if cp.get("type") != "email":
+                    skipped += 1
+                    continue
+
+                uid = cp.get("uid", "")
+                if not uid:
+                    skipped += 1
+                    continue
+
+                settings = dict(cp.get("settings") or {})
+                if settings.get("singleEmail") is enabled:
+                    skipped += 1
+                    continue
+
+                settings["singleEmail"] = enabled
+                payload = {
+                    "uid": uid,
+                    "name": cp.get("name", ""),
+                    "type": "email",
+                    "settings": settings,
+                    "disableResolveMessage": cp.get("disableResolveMessage", False),
+                }
+
+                put_resp = await client.put(
+                    f"/api/v1/provisioning/contact-points/{uid}", json=payload
+                )
+                if put_resp.status_code >= 400:
+                    errors.append(
+                        {
+                            "uid": uid,
+                            "status": put_resp.status_code,
+                            "body": put_resp.text,
+                        }
+                    )
+                    continue
+
+                updated += 1
+
+        return {"updated": updated, "skipped": skipped, "errors": errors}
 
     # ── Rule payload builder ──────────────────────────────────────────────────
 
