@@ -1,6 +1,8 @@
 """Thin async wrapper around the Grafana HTTP API used by alert-api."""
 
 import json
+import re
+from datetime import datetime, timezone
 import httpx
 
 # Prometheus datasource UID — hardcoded, defined in provisioning/datasources/prometheus.yml
@@ -29,6 +31,11 @@ class GrafanaClient:
         self.base_url = base_url.rstrip("/")
         self._auth_headers = {"Authorization": f"Bearer {token}"}
 
+    def _auth_kwargs(self, basic_auth: tuple[str, str] | None = None) -> dict:
+        if basic_auth is not None:
+            return {"auth": basic_auth}
+        return {"headers": self._auth_headers}
+
     # ── Auth validation ───────────────────────────────────────────────────────
 
     async def validate_credentials(self, username: str, password: str) -> bool:
@@ -36,6 +43,18 @@ class GrafanaClient:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
             resp = await client.get("/api/user", auth=(username, password))
             return resp.status_code == 200
+
+    async def validate_admin_credentials(self, username: str, password: str) -> bool:
+        """Return True if credentials are valid and user has Grafana admin privileges."""
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
+            resp = await client.get("/api/user", auth=(username, password))
+            if resp.status_code != 200:
+                return False
+            try:
+                user = resp.json()
+            except Exception:
+                return False
+            return bool(user.get("isGrafanaAdmin")) or str(user.get("orgRole", "")).lower() == "admin"
 
     # ── Health ────────────────────────────────────────────────────────────────
 
@@ -135,31 +154,142 @@ class GrafanaClient:
 
     _AUTO_SUBSCRIBE_TAG = "recipient-auto-subscribe"
 
-    async def get_auto_subscribe_settings(self) -> dict[str, bool]:
+    async def get_auto_subscribe_settings(self, basic_auth: tuple[str, str] | None = None) -> dict[str, bool]:
         """Return {contact_uid: auto_subscribe} for all stored settings."""
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url, timeout=10.0, **self._auth_kwargs(basic_auth)
+            ) as client:
+                resp = await client.get(
+                    "/api/annotations",
+                    params={"tags": self._AUTO_SUBSCRIBE_TAG, "limit": 1},
+                )
+                resp.raise_for_status()
+                items = resp.json()
+                if not items:
+                    return {}
+                try:
+                    return json.loads(items[0]["text"])
+                except Exception:
+                    return {}
+        except httpx.HTTPError:
+            # Annotation permissions may be restricted in some Grafana setups.
+            # Fallback to default behavior: all recipients are auto-subscribed.
+            return {}
+
+    @staticmethod
+    def _split_email_addresses(raw: str) -> list[str]:
+        """Split comma/semicolon/space separated addresses into clean parts."""
+        if not raw:
+            return []
+        parts = re.split(r"[;,\s]+", raw)
+        cleaned = [p.strip().strip("<>") for p in parts if p and "@" in p]
+        return [p for p in cleaned if p]
+
+    async def list_email_recipients(self, basic_auth: tuple[str, str] | None = None) -> list[dict]:
+        """Return flattened email recipients from configured email contact points."""
+        cps = await self.list_contact_points(basic_auth=basic_auth)
+        recipients: list[dict] = []
+        for cp in cps:
+            if cp.get("type") != "email":
+                continue
+            cp_name = cp.get("name", "")
+            cp_uid = cp.get("uid", "")
+            addresses = self._split_email_addresses(cp.get("settings", {}).get("addresses", ""))
+            for addr in addresses:
+                addr_l = addr.lower()
+                if addr_l == "example@email.com" or addr_l.endswith("@example.com"):
+                    continue
+                recipients.append({
+                    "contact_uid": cp_uid,
+                    "contact_name": cp_name,
+                    "address": addr,
+                })
+        return recipients
+
+    async def send_test_email_to_all_recipients(self, basic_auth: tuple[str, str] | None = None) -> dict:
+        """Trigger a one-shot Grafana notification test to all configured email addresses."""
+        recipients = await self.list_email_recipients(basic_auth=basic_auth)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in recipients:
+            addr = item["address"].lower()
+            if addr not in seen:
+                seen.add(addr)
+                deduped.append(item["address"])
+
+        if not deduped:
+            return {
+                "sent": False,
+                "recipient_count": 0,
+                "addresses": [],
+                "message": "No email recipients configured.",
+            }
+
+        # Numeric suffix helps correlate received/missing deliveries.
+        test_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        alert_name = f"TestAlert-{test_id}"
+
+        payload = {
+            "receivers": [
+                {
+                    "name": "recipient-check",
+                    "grafana_managed_receiver_configs": [
+                        {
+                            "name": "recipient-check",
+                            "type": "email",
+                            "settings": {
+                                "addresses": ",".join(deduped),
+                                "singleEmail": False,
+                            },
+                            "disableResolveMessage": False,
+                        }
+                    ],
+                }
+            ],
+            "alert": {
+                "labels": {
+                    "alertname": alert_name,
+                    "instance": "Grafana",
+                },
+                "annotations": {
+                    "summary": f"Notification test {test_id}",
+                    "__value_string__": "[ metric='foo' labels={instance=bar} value=10 ]",
+                },
+            },
+        }
+
         async with httpx.AsyncClient(
-            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+            base_url=self.base_url, timeout=15.0, **self._auth_kwargs(basic_auth)
         ) as client:
-            resp = await client.get(
-                "/api/annotations",
-                params={"tags": self._AUTO_SUBSCRIBE_TAG, "limit": 1},
+            resp = await client.post(
+                "/api/alertmanager/grafana/config/api/v1/receivers/test",
+                json=payload,
             )
             resp.raise_for_status()
-            items = resp.json()
-            if not items:
-                return {}
-            try:
-                return json.loads(items[0]["text"])
-            except Exception:
-                return {}
+            body = resp.json()
 
-    async def set_auto_subscribe(self, contact_uid: str, enabled: bool) -> None:
+        return {
+            "sent": True,
+            "test_id": test_id,
+            "alert_name": alert_name,
+            "recipient_count": len(deduped),
+            "addresses": deduped,
+            "result": body,
+        }
+
+    async def set_auto_subscribe(
+        self,
+        contact_uid: str,
+        enabled: bool,
+        basic_auth: tuple[str, str] | None = None,
+    ) -> None:
         """Persist auto_subscribe setting for one contact point."""
-        settings = await self.get_auto_subscribe_settings()
+        settings = await self.get_auto_subscribe_settings(basic_auth=basic_auth)
         settings[contact_uid] = enabled
 
         async with httpx.AsyncClient(
-            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+            base_url=self.base_url, timeout=10.0, **self._auth_kwargs(basic_auth)
         ) as client:
             # Delete existing annotation first
             existing = await client.get(
@@ -263,7 +393,9 @@ class GrafanaClient:
             resp.raise_for_status()
 
     async def rebuild_notification_policy(
-        self, alert_items: list[dict]
+        self,
+        alert_items: list[dict],
+        basic_auth: tuple[str, str] | None = None,
     ) -> None:
         """Regenerate the Grafana notification policy so that:
         - Alerts with a notify_to label go only to the listed contact points.
@@ -278,7 +410,7 @@ class GrafanaClient:
 
         # Get all contact points — both for uid→name lookup and catch-all building.
         async with httpx.AsyncClient(
-            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+            base_url=self.base_url, timeout=10.0, **self._auth_kwargs(basic_auth)
         ) as client:
             cp_resp = await client.get("/api/v1/provisioning/contact-points")
             cp_resp.raise_for_status()
@@ -294,7 +426,7 @@ class GrafanaClient:
         ]
 
         # Load auto-subscribe settings; default True for unknown UIDs.
-        auto_settings = await self.get_auto_subscribe_settings()
+        auto_settings = await self.get_auto_subscribe_settings(basic_auth=basic_auth)
         auto_email_names: list[str] = [
             cp["name"] for cp in all_cps
             if cp.get("type") == "email" and cp.get("name")
@@ -339,11 +471,23 @@ class GrafanaClient:
             "repeat_interval": "4h",
             "routes": per_recipient + catch_all,
         }
-        headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+        if basic_auth is None:
+            headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+            client_kwargs = {"headers": headers}
+        else:
+            client_kwargs = {
+                "auth": basic_auth,
+                "headers": {"X-Disable-Provenance": "true"},
+            }
         async with httpx.AsyncClient(
-            base_url=self.base_url, headers=headers, timeout=10.0
+            base_url=self.base_url, timeout=10.0, **client_kwargs
         ) as client:
             resp = await client.put("/api/v1/provisioning/policies", json=policy)
+            if resp.status_code == 403 and "invalidProvenance" in resp.text:
+                # Existing policy tree is file-provisioned; reset it first, then retry.
+                reset_resp = await client.delete("/api/v1/provisioning/policies")
+                reset_resp.raise_for_status()
+                resp = await client.put("/api/v1/provisioning/policies", json=policy)
             resp.raise_for_status()
 
     # ── Folders ───────────────────────────────────────────────────────────────
@@ -366,10 +510,10 @@ class GrafanaClient:
 
     # ── Contact points (recipients) ───────────────────────────────────────────
 
-    async def list_contact_points(self) -> list[dict]:
+    async def list_contact_points(self, basic_auth: tuple[str, str] | None = None) -> list[dict]:
         """GET /api/v1/provisioning/contact-points"""
         async with httpx.AsyncClient(
-            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+            base_url=self.base_url, timeout=10.0, **self._auth_kwargs(basic_auth)
         ) as client:
             resp = await client.get("/api/v1/provisioning/contact-points")
             resp.raise_for_status()

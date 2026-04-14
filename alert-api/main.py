@@ -86,6 +86,20 @@ def _metric_config_for(name: str) -> Optional[dict]:
     return None
 
 
+def _basic_creds_from_auth_header(authorization: Optional[str]) -> tuple[str, str]:
+    """Parse Basic authorization header into (username, password)."""
+    if not authorization or not authorization.startswith("Basic "):
+        raise HTTPException(status_code=401, detail="Grafana credentials required")
+    try:
+        decoded = base64.b64decode(authorization[6:]).decode("utf-8")
+        username, _, password = decoded.partition(":")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid credentials format")
+    if not username or not password:
+        raise HTTPException(status_code=401, detail="Username and password required")
+    return username, password
+
+
 # ── Auth dependency ───────────────────────────────────────────────────────────
 
 async def require_auth(
@@ -111,6 +125,29 @@ async def require_auth(
 
     if not await _grafana.validate_credentials(username, password):
         raise HTTPException(status_code=401, detail="Invalid Grafana credentials")
+
+
+async def require_admin_auth(
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> None:
+    """Validate HTTP Basic auth and require Grafana Admin role."""
+    if not authorization or not authorization.startswith("Basic "):
+        raise HTTPException(status_code=401, detail="Grafana credentials required")
+
+    try:
+        decoded = base64.b64decode(authorization[6:]).decode("utf-8")
+        username, _, password = decoded.partition(":")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid credentials format")
+
+    if not username or not password:
+        raise HTTPException(status_code=401, detail="Username and password required")
+
+    # Keep 401 for invalid credentials, 403 for authenticated but not admin.
+    if not await _grafana.validate_credentials(username, password):
+        raise HTTPException(status_code=401, detail="Invalid Grafana credentials")
+    if not await _grafana.validate_admin_credentials(username, password):
+        raise HTTPException(status_code=403, detail="Grafana admin credentials required")
 
 
 AuthDep = Annotated[None, Depends(require_auth)]
@@ -347,7 +384,11 @@ async def delete_alert(uid: str) -> dict:
 
 
 @app.patch("/api/alerts/{uid}/recipients", dependencies=[Depends(require_auth)])
-async def set_alert_recipients(uid: str, req: SetAlertRecipientsRequest) -> dict:
+async def set_alert_recipients(
+    uid: str,
+    req: SetAlertRecipientsRequest,
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
         raise HTTPException(status_code=400, detail="Invalid alert UID")
     for cuid in req.contact_uids:
@@ -355,10 +396,11 @@ async def set_alert_recipients(uid: str, req: SetAlertRecipientsRequest) -> dict
             raise HTTPException(status_code=400, detail=f"Invalid contact UID: {cuid!r}")
 
     try:
+        basic_auth = _basic_creds_from_auth_header(authorization)
         await _grafana.set_alert_notify_to(uid, req.contact_uids)
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items)
+        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
@@ -366,7 +408,7 @@ async def set_alert_recipients(uid: str, req: SetAlertRecipientsRequest) -> dict
 
 
 @app.delete("/api/recipients/{uid}", dependencies=[Depends(require_auth)])
-async def delete_recipient(uid: str) -> dict:
+async def delete_recipient(uid: str, authorization: Annotated[Optional[str], Header()] = None) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
         raise HTTPException(status_code=400, detail="Invalid recipient UID")
     try:
@@ -378,9 +420,10 @@ async def delete_recipient(uid: str) -> dict:
 
     # Rebuild policy so the deleted contact point is removed from catch-all routes.
     try:
+        basic_auth = _basic_creds_from_auth_header(authorization)
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items)
+        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
     except Exception:
         pass
 
@@ -411,7 +454,7 @@ async def list_recipients() -> list[RecipientListItem]:
 
 
 @app.post("/api/recipients", dependencies=[Depends(require_auth)], response_model=RecipientListItem)
-async def create_recipient(req: CreateRecipientRequest) -> RecipientListItem:
+async def create_recipient(req: CreateRecipientRequest, authorization: Annotated[Optional[str], Header()] = None) -> RecipientListItem:
     try:
         created = await _grafana.create_contact_point(req.name, req.email)
     except httpx.HTTPStatusError as exc:
@@ -423,9 +466,10 @@ async def create_recipient(req: CreateRecipientRequest) -> RecipientListItem:
     # Rebuild notification policy so the new contact point is included in
     # the catch-all and starts receiving all unassigned alerts immediately.
     try:
+        basic_auth = _basic_creds_from_auth_header(authorization)
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items)
+        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
     except Exception:
         pass  # non-fatal — policy will be updated on next assignment change
 
@@ -454,15 +498,34 @@ async def sync_email_contact_points_format() -> dict:
 
 
 @app.patch("/api/recipients/{uid}/auto-subscribe", dependencies=[Depends(require_auth)])
-async def set_recipient_auto_subscribe(uid: str, req: SetRecipientAutoSubscribeRequest) -> dict:
+async def set_recipient_auto_subscribe(
+    uid: str,
+    req: SetRecipientAutoSubscribeRequest,
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
         raise HTTPException(status_code=400, detail="Invalid recipient UID")
     try:
-        await _grafana.set_auto_subscribe(uid, req.auto_subscribe)
+        basic_auth = _basic_creds_from_auth_header(authorization)
+        await _grafana.set_auto_subscribe(uid, req.auto_subscribe, basic_auth=basic_auth)
         # Rebuild policy so catch-all reflects new auto-subscribe state
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items)
+        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
     return {"uid": uid, "auto_subscribe": req.auto_subscribe}
+
+
+@app.post("/api/recipients/check", dependencies=[Depends(require_admin_auth)])
+async def check_all_recipients(authorization: Annotated[Optional[str], Header()] = None) -> dict:
+    """Send a one-shot test email to all configured recipient addresses."""
+    try:
+        basic_auth = _basic_creds_from_auth_header(authorization)
+        result = await _grafana.send_test_email_to_all_recipients(basic_auth=basic_auth)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Grafana check error {exc.response.status_code}: {exc.response.text}",
+        )
+    return result
