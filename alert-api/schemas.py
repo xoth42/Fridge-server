@@ -43,6 +43,7 @@ class AlertListItem(BaseModel):
     state: str
     current_value: Optional[float] = None
     notify_to: list[str] = []
+    recipient_count: int = 0
 
 
 class SetAlertEnabledRequest(BaseModel):
@@ -51,6 +52,10 @@ class SetAlertEnabledRequest(BaseModel):
 
 class SetAlertRecipientsRequest(BaseModel):
     contact_uids: list[str]
+
+
+class SetRecipientAutoSubscribeRequest(BaseModel):
+    auto_subscribe: bool
 
 
 class CreateRecipientRequest(BaseModel):
@@ -69,6 +74,7 @@ class RecipientListItem(BaseModel):
     uid: str
     name: str
     type: str
+    auto_subscribe: bool = True
 
 
 class MetricItem(BaseModel):

@@ -304,7 +304,7 @@ function renderAlerts(alerts) {
   const sortedAlerts = sortAlerts(alerts);
   renderSortHeaders();
   if (sortedAlerts.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No alerts configured.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No alerts configured.</td></tr>';
     return;
   }
 
@@ -332,6 +332,10 @@ function renderAlerts(alerts) {
     const pencilIcon = `<span class="inline-pencil">✎</span>`;
     const titleWithIcon = `<span class="alert-title-cell">${escHtml(a.title)}${pencilIcon}</span>`;
 
+    const recipientCount = (a.recipient_count !== undefined && a.recipient_count !== null)
+      ? `<span class="recipient-count">${a.recipient_count}</span>`
+      : '<span class="recipient-count">—</span>';
+
     return `<tr onclick="editAlert(${escHtml(JSON.stringify(a))})" class="alert-row-editable">
       <td>${titleWithIcon}</td>
       <td>${stateBadge}</td>
@@ -339,6 +343,7 @@ function renderAlerts(alerts) {
       <td class="col-metric">${escHtml(a.metric)}</td>
       <td class="col-operator">${condition}</td>
       ${currentCell}
+      <td class="col-recipients">${recipientCount}</td>
       <td>${toggleBtn}</td>
       <td>${deleteBtn}</td>
     </tr>`;
@@ -611,6 +616,87 @@ function renderRecipients(recipients) {
   });
 }
 
+async function runVerifiedToggle({
+  controlEl,
+  pendingClassHost,
+  request,
+  verify,
+  onConfirmed,
+  successToast,
+  verifiedToast,
+  failureToast,
+}) {
+  if (controlEl) controlEl.disabled = true;
+  if (pendingClassHost) pendingClassHost.classList.add('is-pending');
+
+  try {
+    const resp = await request();
+    if (resp.ok) {
+      if (onConfirmed) await onConfirmed();
+      if (successToast) toast(successToast);
+      return true;
+    }
+
+    const data = await resp.json().catch(() => ({}));
+    const verified = await verify();
+    if (verified) {
+      if (onConfirmed) await onConfirmed();
+      if (verifiedToast || successToast) toast(verifiedToast || successToast);
+      return true;
+    }
+
+    toast(data.detail || data.message || `Error ${resp.status}`, 'error');
+    return false;
+  } catch (err) {
+    if (err.message === 'Unauthenticated') return false;
+    const verified = await verify();
+    if (verified) {
+      if (onConfirmed) await onConfirmed();
+      if (verifiedToast || successToast) toast(verifiedToast || successToast);
+      return true;
+    }
+    toast(failureToast || 'Request failed.', 'error');
+    return false;
+  } finally {
+    if (controlEl) controlEl.disabled = false;
+    if (pendingClassHost) pendingClassHost.classList.remove('is-pending');
+  }
+}
+
+async function setRecipientAutoSubscribe(uid, newValue, controlEl) {
+  const verify = async () => {
+    try {
+      const verifyResp = await apiFetch('/recipients');
+      if (!verifyResp.ok) return null;
+      const recipients = await verifyResp.json();
+      window._recipientsCache = recipients;
+      renderRecipients(recipients);
+      const rec = recipients.find((r) => r.uid === uid);
+      if (!rec) return null;
+      return rec.auto_subscribe !== false;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  return runVerifiedToggle({
+    controlEl,
+    pendingClassHost: controlEl ? controlEl.closest('.assignment-auto-subscribe') : null,
+    request: () => apiFetch(`/recipients/${uid}/auto-subscribe`, {
+      method: 'PATCH',
+      body: JSON.stringify({ auto_subscribe: newValue }),
+    }),
+    verify: async () => (await verify()) === newValue,
+    onConfirmed: async () => {
+      await loadRecipients();
+      await loadAlerts();  // refresh recipient_count
+    },
+    successToast: `Auto-subscribe ${newValue ? 'enabled' : 'disabled'}.`,
+    verifiedToast: 'Auto-subscribe updated.',
+    failureToast: 'Failed to update auto-subscribe.',
+  });
+}
+
 // ── Assignment panel ────────────────────────────────────────────────
 
 let _assignmentContactUid = null;
@@ -641,11 +727,29 @@ function openAssignmentPanel(contactUid, contactName) {
     }).join('');
     // Attach listeners
     list.querySelectorAll('.assignment-cb').forEach((cb) => {
-      cb.addEventListener('change', (e) => saveAssignment(cb.dataset.uid, contactUid, e.target.checked));
+      cb.addEventListener('change', async (e) => {
+        const desired = e.target.checked;
+        const ok = await saveAssignment(cb.dataset.uid, contactUid, desired, e.target);
+        if (!ok) e.target.checked = !desired;
+      });
     });
   }
 
   const panel = document.getElementById('assignment-panel-container');
+
+  // Keep auto-subscribe control inside recipient configuration panel.
+  const autoCb = document.getElementById('assignment-auto-subscribe');
+  if (autoCb) {
+    const rec = (window._recipientsCache || []).find((r) => r.uid === contactUid);
+    autoCb.checked = rec ? rec.auto_subscribe !== false : true;
+    autoCb.disabled = false;
+    autoCb.onchange = async (e) => {
+      const desired = e.target.checked;
+      const ok = await setRecipientAutoSubscribe(contactUid, desired, e.target);
+      if (!ok) e.target.checked = !desired;
+    };
+  }
+
   panel.hidden = false;
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -655,9 +759,9 @@ function closeAssignmentPanel() {
   _assignmentContactUid = null;
 }
 
-async function saveAssignment(alertUid, contactUid, add) {
+async function saveAssignment(alertUid, contactUid, add, controlEl) {
   const alert = (window._alertsCache || []).find((a) => a.uid === alertUid);
-  if (!alert) return;
+  if (!alert) return false;
 
   const allUids = (window._recipientsCache || []).map((r) => r.uid);
   // If notify_to is empty it means "all recipients" — expand to full list before modifying
@@ -671,29 +775,38 @@ async function saveAssignment(alertUid, contactUid, add) {
     current = current.filter((u) => u !== contactUid);
   }
 
-  try {
-    const resp = await apiFetch(`/alerts/${alertUid}/recipients`, {
+  const verify = async () => {
+    try {
+      const verifyResp = await apiFetch('/alerts');
+      if (!verifyResp.ok) return null;
+      const alerts = await verifyResp.json();
+      window._alertsCache = alerts;
+      renderAlerts(alerts);
+      const fresh = alerts.find((a) => a.uid === alertUid);
+      if (!fresh) return null;
+      return fresh.notify_to.length === 0 || fresh.notify_to.includes(contactUid);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  return runVerifiedToggle({
+    controlEl,
+    pendingClassHost: controlEl ? controlEl.closest('.assignment-item') : null,
+    request: () => apiFetch(`/alerts/${alertUid}/recipients`, {
       method: 'PATCH',
       body: JSON.stringify({ contact_uids: current }),
-    });
-    if (resp.ok) {
-      // Update cache in-place so checkboxes stay consistent
+    }),
+    verify: async () => (await verify()) === add,
+    onConfirmed: async () => {
+      // Keep local cache coherent immediately; loadAlerts refreshes full truth.
       alert.notify_to = current;
-      toast('Assignment saved.');
-    } else {
-      const body = await resp.json().catch(() => ({}));
-      toast(body.detail || `Error ${resp.status}`, 'error');
-      // Revert checkbox
-      const cb = document.querySelector(`.assignment-cb[data-uid="${alertUid}"]`);
-      if (cb) cb.checked = !add;
-    }
-  } catch (err) {
-    if (err.message !== 'Unauthenticated') {
-      toast('Save failed.', 'error');
-      const cb = document.querySelector(`.assignment-cb[data-uid="${alertUid}"]`);
-      if (cb) cb.checked = !add;
-    }
-  }
+      await loadAlerts();
+    },
+    successToast: 'Assignment saved.',
+    verifiedToast: 'Assignment saved.',
+    failureToast: 'Save failed.',
+  });
 }
 
 document.getElementById('assignment-close').addEventListener('click', closeAssignmentPanel);

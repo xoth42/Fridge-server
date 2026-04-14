@@ -36,6 +36,7 @@ from schemas import (
     RecipientListItem,
     SetAlertEnabledRequest,
     SetAlertRecipientsRequest,
+    SetRecipientAutoSubscribeRequest,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -185,6 +186,23 @@ async def list_alerts() -> list[AlertListItem]:
     values = await asyncio.gather(*[_fetch_prometheus_value(i.metric, i.fridge) for i in items])
     for item, val in zip(items, values):
         item.current_value = val
+
+    # Compute recipient_count per alert.
+    # - Alerts with explicit notify_to → count = len(notify_to)
+    # - Alerts with empty notify_to → count = number of auto-subscribe recipients
+    try:
+        auto_settings = await _grafana.get_auto_subscribe_settings()
+        raw_cps = await _grafana.list_contact_points()
+        auto_count = sum(
+            1 for cp in raw_cps
+            if cp.get("type") == "email" and auto_settings.get(cp.get("uid", ""), True)
+        )
+    except Exception:
+        auto_settings = {}
+        auto_count = 0
+
+    for item in items:
+        item.recipient_count = len(item.notify_to) if item.notify_to else auto_count
 
     return items
 
@@ -376,11 +394,17 @@ async def list_recipients() -> list[RecipientListItem]:
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
+    try:
+        auto_settings = await _grafana.get_auto_subscribe_settings()
+    except Exception:
+        auto_settings = {}
+
     return [
         RecipientListItem(
             uid=cp.get("uid", ""),
             name=cp.get("name", ""),
             type=cp.get("type", ""),
+            auto_subscribe=auto_settings.get(cp.get("uid", ""), True),
         )
         for cp in raw
     ]
@@ -427,3 +451,18 @@ async def sync_email_contact_points_format() -> dict:
         "singleEmail": False,
         **result,
     }
+
+
+@app.patch("/api/recipients/{uid}/auto-subscribe", dependencies=[Depends(require_auth)])
+async def set_recipient_auto_subscribe(uid: str, req: SetRecipientAutoSubscribeRequest) -> dict:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
+        raise HTTPException(status_code=400, detail="Invalid recipient UID")
+    try:
+        await _grafana.set_auto_subscribe(uid, req.auto_subscribe)
+        # Rebuild policy so catch-all reflects new auto-subscribe state
+        raw_rules = await _grafana.list_alert_rules()
+        items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+        await _grafana.rebuild_notification_policy(items)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+    return {"uid": uid, "auto_subscribe": req.auto_subscribe}

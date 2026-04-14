@@ -129,6 +129,54 @@ class GrafanaClient:
     def _disabled_uid_tag(self, uid: str) -> str:
         return f"disabled-alert:{uid}"
 
+    # ── Recipient auto-subscribe settings ─────────────────────────────────
+    # Stored as a single Grafana annotation with tag "recipient-auto-subscribe"
+    # whose text is a JSON object: {uid: bool, ...}.  Missing UIDs default True.
+
+    _AUTO_SUBSCRIBE_TAG = "recipient-auto-subscribe"
+
+    async def get_auto_subscribe_settings(self) -> dict[str, bool]:
+        """Return {contact_uid: auto_subscribe} for all stored settings."""
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            resp = await client.get(
+                "/api/annotations",
+                params={"tags": self._AUTO_SUBSCRIBE_TAG, "limit": 1},
+            )
+            resp.raise_for_status()
+            items = resp.json()
+            if not items:
+                return {}
+            try:
+                return json.loads(items[0]["text"])
+            except Exception:
+                return {}
+
+    async def set_auto_subscribe(self, contact_uid: str, enabled: bool) -> None:
+        """Persist auto_subscribe setting for one contact point."""
+        settings = await self.get_auto_subscribe_settings()
+        settings[contact_uid] = enabled
+
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+        ) as client:
+            # Delete existing annotation first
+            existing = await client.get(
+                "/api/annotations",
+                params={"tags": self._AUTO_SUBSCRIBE_TAG, "limit": 1},
+            )
+            existing.raise_for_status()
+            for item in existing.json():
+                await client.delete(f"/api/annotations/{item['id']}")
+
+            # Write updated settings
+            resp = await client.post("/api/annotations", json={
+                "tags": [self._AUTO_SUBSCRIBE_TAG],
+                "text": json.dumps(settings),
+            })
+            resp.raise_for_status()
+
     async def store_disabled_rule(self, uid: str, rule: dict) -> None:
         """Save a rule's JSON into a Grafana annotation (replaces any existing)."""
         await self._delete_disabled_annotation(uid)  # avoid duplicates
@@ -245,6 +293,14 @@ class GrafanaClient:
             if cp.get("type") == "email" and cp.get("name")
         ]
 
+        # Load auto-subscribe settings; default True for unknown UIDs.
+        auto_settings = await self.get_auto_subscribe_settings()
+        auto_email_names: list[str] = [
+            cp["name"] for cp in all_cps
+            if cp.get("type") == "email" and cp.get("name")
+            and auto_settings.get(cp.get("uid", ""), True)
+        ]
+
         # Per-recipient routes: match notify_to label, continue so multiple
         # recipients can all fire on the same alert.
         per_recipient: list[dict] = []
@@ -269,7 +325,7 @@ class GrafanaClient:
                 **({"object_matchers": [["notify_to", "!~", ".+"]]} if guarded else {}),
             }
         ]
-        for name in all_email_names:
+        for name in auto_email_names:
             route: dict = {"receiver": name, "continue": True}
             if guarded:
                 route["object_matchers"] = [["notify_to", "!~", ".+"]]
@@ -277,7 +333,7 @@ class GrafanaClient:
 
         policy = {
             "receiver": "lab-email",
-            "group_by": ["alertname", "fridge"],
+            "group_by": [],
             "group_wait": "30s",
             "group_interval": "5m",
             "repeat_interval": "4h",

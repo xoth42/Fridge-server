@@ -66,6 +66,7 @@
               <th class="col-metric">Metric</th>
               <th class="col-operator">Condition</th>
               <th>Current</th>
+              <th>Recipients</th>
               <th>On/Off</th>
               <th>Delete</th>
             </tr>
@@ -190,6 +191,12 @@
       <button class="btn btn-secondary btn-sm" id="assignment-close">&#10005; Close</button>
     </div>
     <div class="card-body">
+      <div class="assignment-auto-subscribe">
+        <label>
+          <input type="checkbox" id="assignment-auto-subscribe" />
+          <strong>Auto-subscribe to new alerts</strong>
+        </label>
+      </div>
       <p style="font-size:13px;margin-bottom:14px">Check which alerts this recipient should receive. Unchecked alerts will not be sent to this recipient.</p>
       <ul id="assignment-list" class="assignment-list"></ul>
     </div>
