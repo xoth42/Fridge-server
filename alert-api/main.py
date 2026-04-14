@@ -396,11 +396,10 @@ async def set_alert_recipients(
             raise HTTPException(status_code=400, detail=f"Invalid contact UID: {cuid!r}")
 
     try:
-        basic_auth = _basic_creds_from_auth_header(authorization)
         await _grafana.set_alert_notify_to(uid, req.contact_uids)
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
+        await _grafana.rebuild_notification_policy(items)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
@@ -420,12 +419,14 @@ async def delete_recipient(uid: str, authorization: Annotated[Optional[str], Hea
 
     # Rebuild policy so the deleted contact point is removed from catch-all routes.
     try:
-        basic_auth = _basic_creds_from_auth_header(authorization)
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
-    except Exception:
-        pass
+        await _grafana.rebuild_notification_policy(items)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Recipient deleted but policy update failed: {exc.response.status_code}",
+        )
 
     return {"deleted": True}
 
@@ -466,12 +467,14 @@ async def create_recipient(req: CreateRecipientRequest, authorization: Annotated
     # Rebuild notification policy so the new contact point is included in
     # the catch-all and starts receiving all unassigned alerts immediately.
     try:
-        basic_auth = _basic_creds_from_auth_header(authorization)
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
-    except Exception:
-        pass  # non-fatal — policy will be updated on next assignment change
+        await _grafana.rebuild_notification_policy(items)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Recipient created but policy update failed: {exc.response.status_code}",
+        )
 
     return RecipientListItem(
         uid=created.get("uid", ""),
@@ -511,7 +514,7 @@ async def set_recipient_auto_subscribe(
         # Rebuild policy so catch-all reflects new auto-subscribe state
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
-        await _grafana.rebuild_notification_policy(items, basic_auth=basic_auth)
+        await _grafana.rebuild_notification_policy(items)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
     return {"uid": uid, "auto_subscribe": req.auto_subscribe}

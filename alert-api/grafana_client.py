@@ -186,6 +186,25 @@ class GrafanaClient:
         cleaned = [p.strip().strip("<>") for p in parts if p and "@" in p]
         return [p for p in cleaned if p]
 
+    _PLACEHOLDER_DOMAINS = ("@example.com",)
+
+    @classmethod
+    def _cp_is_routable(cls, cp: dict) -> bool:
+        """Return True only if the contact point has a UID and at least one real address.
+
+        Skips contact points with a blank UID (broken/legacy) or whose addresses
+        are all placeholder values — routing to these would silently fail or bounce.
+        """
+        if not cp.get("uid"):
+            return False
+        addresses = cls._split_email_addresses(
+            (cp.get("settings") or {}).get("addresses", "")
+        )
+        return any(
+            not any(addr.lower().endswith(d) for d in cls._PLACEHOLDER_DOMAINS)
+            for addr in addresses
+        )
+
     async def list_email_recipients(self, basic_auth: tuple[str, str] | None = None) -> list[dict]:
         """Return flattened email recipients from configured email contact points."""
         cps = await self.list_contact_points(basic_auth=basic_auth)
@@ -430,6 +449,7 @@ class GrafanaClient:
         auto_email_names: list[str] = [
             cp["name"] for cp in all_cps
             if cp.get("type") == "email" and cp.get("name")
+            and self._cp_is_routable(cp)
             and auto_settings.get(cp.get("uid", ""), True)
         ]
 
@@ -466,21 +486,17 @@ class GrafanaClient:
         policy = {
             "receiver": "lab-email",
             "group_by": [],
-            "group_wait": "30s",
+            "group_wait": "10s",
             "group_interval": "5m",
-            "repeat_interval": "4h",
+            "repeat_interval": "1h",
             "routes": per_recipient + catch_all,
         }
-        if basic_auth is None:
-            headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
-            client_kwargs = {"headers": headers}
-        else:
-            client_kwargs = {
-                "auth": basic_auth,
-                "headers": {"X-Disable-Provenance": "true"},
-            }
+        # Always use the service account token for the provisioning API write —
+        # it requires Admin role, which the SA has.  User basic_auth (Editor)
+        # would 403 here regardless of the user's Grafana role.
+        sa_headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
         async with httpx.AsyncClient(
-            base_url=self.base_url, timeout=10.0, **client_kwargs
+            base_url=self.base_url, headers=sa_headers, timeout=10.0
         ) as client:
             resp = await client.put("/api/v1/provisioning/policies", json=policy)
             if resp.status_code == 403 and "invalidProvenance" in resp.text:

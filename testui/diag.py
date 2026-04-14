@@ -43,15 +43,38 @@ from urllib.parse import urlencode
 # Receivers expected to exist as provisioned contact points but not created
 # through the alert-api.  Referenced by name in the rebuilt policy.
 PROVISIONED_RECEIVERS = {"lab-slack", "lab-email"}
+_PLACEHOLDER_DOMAINS = ("@example.com",)
+
+
+def _split_addresses(raw: str) -> list[str]:
+    """Normalise a Grafana addresses field to a list of cleaned email strings."""
+    if not raw:
+        return []
+    return [
+        p.strip().strip("<>")
+        for p in re.split(r"[;,\s]+", raw)
+        if p.strip() and "@" in p
+    ]
+
+
+def _cp_has_real_addresses(cp: dict) -> bool:
+    """True if the contact point has at least one non-placeholder address."""
+    addrs = _split_addresses((cp.get("settings") or {}).get("addresses", ""))
+    return any(
+        not any(a.lower().endswith(d) for d in _PLACEHOLDER_DOMAINS)
+        for a in addrs
+    )
+
 
 # ─────────────────────────────── HTTP clients ────────────────────────────────
 
 
-class GrafanaApi:
-    """Direct Grafana API using admin basic auth."""
+class HttpClient:
+    """Basic-auth HTTP client backed by stdlib urllib."""
 
-    def __init__(self, base_url: str, username: str, password: str) -> None:
+    def __init__(self, base_url: str, username: str, password: str, timeout: int = 10) -> None:
         self.base_url = base_url.rstrip("/")
+        self._timeout = timeout
         token = base64.b64encode(f"{username}:{password}".encode()).decode()
         self._headers: dict[str, str] = {
             "Authorization": f"Basic {token}",
@@ -68,12 +91,10 @@ class GrafanaApi:
     ) -> object:
         url = f"{self.base_url}{path}"
         data = json.dumps(payload).encode() if payload is not None else None
-        headers = dict(self._headers)
-        if extra_headers:
-            headers.update(extra_headers)
+        headers = {**self._headers, **(extra_headers or {})}
         req = request.Request(url=url, method=method, headers=headers, data=data)
         try:
-            with request.urlopen(req, timeout=10) as resp:
+            with request.urlopen(req, timeout=self._timeout) as resp:
                 body = resp.read().decode()
                 return json.loads(body) if body.strip() else {}
         except error.HTTPError as exc:
@@ -93,44 +114,13 @@ class GrafanaApi:
     def post(self, path: str, body: object) -> object:
         return self._request("POST", path, body)
 
+    def patch(self, path: str, body: object) -> object:
+        return self._request("PATCH", path, body)
+
     def delete(self, path: str) -> object:
         return self._request("DELETE", path)
 
 
-class AlertApi:
-    """Alert-api client — used for test-send and fire-cycle actions."""
-
-    def __init__(self, base_url: str, username: str, password: str) -> None:
-        self.base_url = base_url.rstrip("/")
-        token = base64.b64encode(f"{username}:{password}".encode()).decode()
-        self._headers: dict[str, str] = {
-            "Authorization": f"Basic {token}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
-
-    def _request(self, method: str, path: str, payload: object = None) -> object:
-        url = f"{self.base_url}{path}"
-        data = json.dumps(payload).encode() if payload is not None else None
-        req = request.Request(url=url, method=method, headers=self._headers, data=data)
-        try:
-            with request.urlopen(req, timeout=20) as resp:
-                body = resp.read().decode()
-                return json.loads(body) if body.strip() else {}
-        except error.HTTPError as exc:
-            body = exc.read().decode(errors="replace")
-            raise RuntimeError(f"{method} {path} → HTTP {exc.code}: {body[:500]}") from exc
-        except error.URLError as exc:
-            raise RuntimeError(f"{method} {path} → {exc}") from exc
-
-    def get(self, path: str) -> object:
-        return self._request("GET", path)
-
-    def post(self, path: str, payload: object) -> object:
-        return self._request("POST", path, payload)
-
-    def patch(self, path: str, payload: object) -> object:
-        return self._request("PATCH", path, payload)
 
 
 # ───────────────────────────── State fetching ────────────────────────────────
@@ -190,12 +180,16 @@ def simulate_policy(
     """Replicate rebuild_notification_policy from grafana_client.py exactly."""
     uid_to_name = {cp.get("uid", ""): cp.get("name", "") for cp in contact_points}
 
-    # Auto-subscribed email contact points (default True for unknown UIDs).
+    # Auto-subscribed email contact points with real addresses (default True for unknown UIDs).
+    # Skips CPs with blank UIDs or only placeholder addresses — same filter as
+    # rebuild_notification_policy in grafana_client.py.
     auto_email_names: list[str] = [
         cp["name"]
         for cp in contact_points
         if cp.get("type") == "email"
         and cp.get("name")
+        and cp.get("uid")
+        and _cp_has_real_addresses(cp)
         and auto_settings.get(cp.get("uid", ""), True)
     ]
 
@@ -372,12 +366,8 @@ def section_contact_points(
         raw_addr = settings.get("addresses", "")
         single = settings.get("singleEmail", False)
 
-        addr_parts = [
-            a.strip()
-            for a in re.split(r"[;,\s]+", raw_addr)
-            if a.strip() and "@" in a
-        ]
-        placeholders = [a for a in addr_parts if a.lower() == "example@email.com" or a.lower().endswith("@example.com")]
+        addr_parts = _split_addresses(raw_addr)
+        placeholders = [a for a in addr_parts if any(a.lower().endswith(d) for d in _PLACEHOLDER_DOMAINS)]
         real_addrs = [a for a in addr_parts if a not in placeholders]
 
         flags: list[str] = []
@@ -746,8 +736,8 @@ def main() -> int:
         print("Missing credentials. Use -u/-p or GF_ADMIN_USER / GF_ADMIN_PASSWORD.")
         return 2
 
-    gf = GrafanaApi(args.grafana_url, args.username, args.password)
-    api = AlertApi(args.api_url, args.username, args.password)
+    gf = HttpClient(args.grafana_url, args.username, args.password)
+    api = HttpClient(args.api_url, args.username, args.password, timeout=20)
 
     print(f"Grafana : {args.grafana_url}")
     print(f"Alert-api: {args.api_url}")
