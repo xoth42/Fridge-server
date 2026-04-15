@@ -29,6 +29,7 @@ fridge's `server.env`.
 
 - Docker Engine with Compose plugin (`docker compose version` must work)
 - `gettext` for `envsubst`: `apt install gettext` / `pacman -S gettext`
+- `jq`: `apt install jq` / `pacman -S jq`
 - `ufw` installed and enabled (used for Pushgateway access control)
 - Ports 8443 and 9091 forwarded at the router (see Network & Firewall below)
 
@@ -236,7 +237,7 @@ curl --max-time 5 http://<server-public-ip>:9091/-/healthy
 
 ```bash
 # Stop
-docker compose --profile production down
+docker compose down
 
 # Restart a single service
 docker compose restart grafana
@@ -250,10 +251,3 @@ nano .env
 ./install.sh
 ```
 
----
-
-## CI
-
-GitHub Actions runs on every push: starts the stack, pushes test metrics,
-verifies Prometheus and Grafana, then tears down. See
-[.github/workflows/ci.yml](.github/workflows/ci.yml).

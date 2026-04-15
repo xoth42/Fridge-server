@@ -883,7 +883,7 @@ document.getElementById('recipient-form').addEventListener('submit', async (e) =
 
 function startAutoRefresh() {
   stopAutoRefresh();
-  refreshTimer = setInterval(loadAlerts, 30_000);
+  refreshTimer = setInterval(loadAlerts, 10_000);
 }
 
 function stopAutoRefresh() {

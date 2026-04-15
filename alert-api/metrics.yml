@@ -1,4 +1,10 @@
 metrics:
+  - name: cpatempwi_celsius
+    label: "Cooling Water Inlet Temp"
+    unit: "°C"
+  - name: cpatempwo_celsius
+    label: "Cooling Water Outlet Temp"
+    unit: "°C"
   - name: ch1_t_kelvin
     label: "CH1 50K Flange Temperature"
     unit: K
@@ -12,7 +18,7 @@ metrics:
     label: "CH6 MXC Temperature"
     unit: K
   - name: ch9_t_kelvin
-    label: "CH9 CP Flange Temperature"
+    label: "CH9 FSE Temperature"
     unit: K
     fridges: [fridge-manny]
   - name: flowmeter_mmol_per_s
@@ -42,12 +48,6 @@ metrics:
   - name: cpa_low_pressure_psi
     label: "Compressor Low Pressure"
     unit: psi
-  - name: cpatempwi_celsius
-    label: "Cooling Water Inlet Temp"
-    unit: "°C"
-  - name: cpatempwo_celsius
-    label: "Cooling Water Outlet Temp"
-    unit: "°C"
   - name: heater_1_watts
     label: "Heater 1 Power"
     unit: W

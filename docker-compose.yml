@@ -126,12 +126,10 @@ services:
 
   # ---------------------------------------------------------------------------
   # Caddy — reverse proxy with automatic Let's Encrypt TLS
-  # Only starts with: docker compose --profile production up -d
   # ---------------------------------------------------------------------------
   caddy:
     build: ./config/caddy   # custom image with DuckDNS DNS-01 plugin
     container_name: fridge-caddy
-    profiles: ["production"]
     ports:
       - "8443:8443"
     volumes:
@@ -153,12 +151,10 @@ services:
   # ---------------------------------------------------------------------------
   # duckdns — keeps zickers-fridge.duckdns.org updated with this server's IP.
   # name.com fridge.zickers.us has a CNAME → zickers-fridge.duckdns.org.
-  # Only starts with: docker compose --profile production up -d
   # ---------------------------------------------------------------------------
   duckdns:
     image: lscr.io/linuxserver/duckdns:latest
     container_name: fridge-duckdns
-    profiles: ["production"]
     environment:
       - PUID=1000
       - PGID=1000

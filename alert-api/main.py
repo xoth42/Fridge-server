@@ -520,6 +520,26 @@ async def set_recipient_auto_subscribe(
     return {"uid": uid, "auto_subscribe": req.auto_subscribe}
 
 
+@app.post("/api/policy/rebuild", dependencies=[Depends(require_admin_auth)])
+async def rebuild_policy() -> dict:
+    """Force-rebuild the Grafana notification policy from all current contact points.
+
+    Use this after install to repair any case where earlier policy PUTs failed
+    (e.g. the SA was Editor-role and 403'd silently), leaving some recipients
+    unrouted.  Safe to call any number of times — idempotent.
+    """
+    try:
+        raw_rules = await _grafana.list_alert_rules()
+        items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+        await _grafana.rebuild_notification_policy(items)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Policy rebuild failed ({exc.response.status_code}): {exc.response.text}",
+        )
+    return {"rebuilt": True}
+
+
 @app.post("/api/recipients/check", dependencies=[Depends(require_admin_auth)])
 async def check_all_recipients(authorization: Annotated[Optional[str], Header()] = None) -> dict:
     """Send a one-shot test email to all configured recipient addresses."""
