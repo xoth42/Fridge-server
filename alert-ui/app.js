@@ -384,8 +384,8 @@ function renderAlerts(alerts) {
       <td>${stateBadge}</td>
       <td>${escHtml(a.fridge)}</td>
       <td class="col-metric">${escHtml(a.metric)}</td>
-      <td class="col-operator">${condition}</td>
       ${currentCell}
+      <td class="col-operator">${condition}</td>
       <td class="col-recipients">${recipientCount}</td>
       <td>${toggleBtn}</td>
       <td>${deleteBtn}</td>
