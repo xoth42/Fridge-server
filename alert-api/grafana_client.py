@@ -27,9 +27,17 @@ class GrafanaClient:
     Grafana username/password against /api/user.
     """
 
-    def __init__(self, base_url: str, token: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        receiver_email: str = "lab-email",
+        receiver_slack: str = "lab-slack",
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self._auth_headers = {"Authorization": f"Bearer {token}"}
+        self.receiver_email = receiver_email
+        self.receiver_slack = receiver_slack
 
     def _auth_kwargs(self, basic_auth: tuple[str, str] | None = None) -> dict:
         if basic_auth is not None:
@@ -415,16 +423,18 @@ class GrafanaClient:
         self,
         alert_items: list[dict],
         basic_auth: tuple[str, str] | None = None,
+        exclude_uids: set[str] | None = None,
     ) -> None:
         """Regenerate the Grafana notification policy so that:
         - Alerts with a notify_to label go only to the listed contact points.
         - Alerts without notify_to fall through to the default catch-all.
         """
         # Collect which contact UIDs are actively referenced
+        exclude = exclude_uids or set()
         active_uids: set[str] = set()
         for item in alert_items:
             for uid in item.get("notify_to", []):
-                if uid:
+                if uid and uid not in exclude:
                     active_uids.add(uid)
 
         # Get all contact points — both for uid→name lookup and catch-all building.
@@ -451,6 +461,7 @@ class GrafanaClient:
             if cp.get("type") == "email" and cp.get("name")
             and self._cp_is_routable(cp)
             and auto_settings.get(cp.get("uid", ""), True)
+            and cp.get("uid", "") not in exclude
         ]
 
         # Per-recipient routes: match notify_to label, continue so multiple
@@ -472,7 +483,7 @@ class GrafanaClient:
         guarded = bool(per_recipient)
         catch_all: list[dict] = [
             {
-                "receiver": "lab-slack",
+                "receiver": self.receiver_slack,
                 "continue": True,
                 **({"object_matchers": [["notify_to", "!~", ".+"]]} if guarded else {}),
             }
@@ -484,7 +495,7 @@ class GrafanaClient:
             catch_all.append(route)
 
         policy = {
-            "receiver": "lab-email",
+            "receiver": self.receiver_email,
             "group_by": [],
             "group_wait": "10s",
             "group_interval": "2m",

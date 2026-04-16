@@ -42,7 +42,11 @@ from urllib.parse import urlencode
 
 # Receivers expected to exist as provisioned contact points but not created
 # through the alert-api.  Referenced by name in the rebuilt policy.
-PROVISIONED_RECEIVERS = {"lab-slack", "lab-email"}
+# Reads from the same env vars used by the alert-api container.
+PROVISIONED_RECEIVERS = {
+    os.environ.get("GRAFANA_RECEIVER_SLACK", "lab-slack"),
+    os.environ.get("GRAFANA_RECEIVER_EMAIL", "lab-email"),
+}
 _PLACEHOLDER_DOMAINS = ("@example.com",)
 
 
@@ -220,7 +224,7 @@ def simulate_policy(
     guarded = bool(per_recipient)
     catch_all: list[dict] = [
         {
-            "receiver": "lab-slack",
+            "receiver": os.environ.get("GRAFANA_RECEIVER_SLACK", "lab-slack"),
             "continue": True,
             **({"object_matchers": [["notify_to", "!~", ".+"]]} if guarded else {}),
         }
@@ -232,7 +236,7 @@ def simulate_policy(
         catch_all.append(route)
 
     return {
-        "receiver": "lab-email",
+        "receiver": os.environ.get("GRAFANA_RECEIVER_EMAIL", "lab-email"),
         "group_by": [],
         "group_wait": "10s",
         "group_interval": "2m",

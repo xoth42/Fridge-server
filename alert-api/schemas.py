@@ -74,6 +74,7 @@ class RecipientListItem(BaseModel):
     uid: str
     name: str
     type: str
+    provisioned: bool = False
     auto_subscribe: bool = True
 
 

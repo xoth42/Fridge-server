@@ -111,6 +111,9 @@ services:
     environment:
       - GRAFANA_URL=http://grafana:3000
       - GRAFANA_SA_TOKEN=${GRAFANA_SA_TOKEN}
+      - GRAFANA_RECEIVER_EMAIL=${GRAFANA_RECEIVER_EMAIL:-lab-email}
+      - GRAFANA_RECEIVER_SLACK=${GRAFANA_RECEIVER_SLACK:-lab-slack}
+      - GRAFANA_HIDDEN_CONTACT_NAMES=${GRAFANA_HIDDEN_CONTACT_NAMES:-}
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

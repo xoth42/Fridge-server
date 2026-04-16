@@ -44,6 +44,12 @@ from schemas import (
 GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://grafana:3000")
 GRAFANA_SA_TOKEN = os.environ.get("GRAFANA_SA_TOKEN", "")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+GRAFANA_RECEIVER_EMAIL = os.environ.get("GRAFANA_RECEIVER_EMAIL", "lab-email")
+GRAFANA_RECEIVER_SLACK = os.environ.get("GRAFANA_RECEIVER_SLACK", "lab-slack")
+_hidden_raw = os.environ.get("GRAFANA_HIDDEN_CONTACT_NAMES", "")
+GRAFANA_HIDDEN_CONTACT_NAMES: set[str] = {
+    n.strip() for n in _hidden_raw.split(",") if n.strip()
+}
 
 # Populated at startup from metrics.yml
 _metrics_config: dict = {}
@@ -55,7 +61,12 @@ async def lifespan(app: FastAPI):
     global _metrics_config, _grafana
     with open("metrics.yml") as fh:
         _metrics_config = yaml.safe_load(fh)
-    _grafana = GrafanaClient(GRAFANA_URL, GRAFANA_SA_TOKEN)
+    _grafana = GrafanaClient(
+        GRAFANA_URL,
+        GRAFANA_SA_TOKEN,
+        receiver_email=GRAFANA_RECEIVER_EMAIL,
+        receiver_slack=GRAFANA_RECEIVER_SLACK,
+    )
     yield
 
 
@@ -445,20 +456,63 @@ async def delete_recipient(uid: str, authorization: Annotated[Optional[str], Hea
     try:
         await _grafana.delete_contact_point(uid)
     except httpx.HTTPStatusError as exc:
-        # If not found, mirror 404. If Grafana refuses (409), provide a clearer
-        # explanation that the contact point is file-provisioned and must be
-        # removed from provisioning config rather than deleted via the API.
+        # If not found, mirror 404.
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Recipient not found")
+
+        # 409 may indicate a provenance/usage conflict. Attempt safe remediation:
+        #  - remove the contact UID from any alert rules' notify_to lists
+        #  - rebuild the notification policy so the receiver is no longer referenced
+        #  - retry deletion once
         if exc.response.status_code == 409:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Recipient cannot be deleted: it appears to be file-provisioned. "
-                    "Remove it from config/grafana/provisioning/alerting/contact-points.yml "
-                    "and reload/restart Grafana, or delete the provisioning entry instead."
-                ),
-            )
+            try:
+                # Find alerts referencing this contact UID
+                raw_rules = await _grafana.list_alert_rules()
+                items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+                referencing = [r for r in items if uid in (r.get("notify_to") or [])]
+
+                # Unassign the contact UID from each referencing alert
+                for r in referencing:
+                    new_uids = [u for u in (r.get("notify_to") or []) if u != uid]
+                    # If new_uids is empty we send an empty list => catch-all (all recipients)
+                    await _grafana.set_alert_notify_to(r["uid"], new_uids)
+
+                # Rebuild policy excluding the target so Grafana no longer
+                # references it (contact still exists at this point).
+                raw_rules2 = await _grafana.list_alert_rules()
+                items2 = [GrafanaClient.parse_rule(r) for r in raw_rules2]
+                await _grafana.rebuild_notification_policy(items2, exclude_uids={uid})
+
+                # Retry delete
+                await _grafana.delete_contact_point(uid)
+            except httpx.HTTPStatusError as exc2:
+                # If deletion still fails with 409, the policy or contact is
+                # truly protected (e.g. file-provisioned).
+                if exc2.response.status_code == 409:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Recipient cannot be deleted: it is still referenced by the Grafana "
+                            "notification policy or is file-provisioned. If it was created via "
+                            "config/grafana/provisioning/alerting/contact-points.yml, remove it "
+                            "there and restart Grafana. Otherwise use the admin rebuild-policy "
+                            "endpoint to clear stale policy references, then retry."
+                        ),
+                    )
+                raise HTTPException(status_code=502, detail=f"Grafana error: {exc2.response.status_code}")
+            except Exception:
+                # Non-HTTP errors in remediation path
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Recipient could not be deleted due to a provisioning or policy conflict. "
+                        "Check Grafana provisioning files and alert rule assignments before retrying."
+                    ),
+                )
+            # Remediation + retry succeeded — policy was already rebuilt above.
+            return {"deleted": True}
+
+        # Other Grafana errors (not 404, not 409)
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
     # Rebuild policy so the deleted contact point is removed from catch-all routes.
@@ -496,6 +550,7 @@ async def list_recipients() -> list[RecipientListItem]:
             auto_subscribe=auto_settings.get(cp.get("uid", ""), True),
         )
         for cp in raw
+        if cp.get("name", "") not in GRAFANA_HIDDEN_CONTACT_NAMES
     ]
 
 
