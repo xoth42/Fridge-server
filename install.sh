@@ -3,15 +3,14 @@
 # install.sh — Fridge Monitoring Stack installer / updater
 # =============================================================================
 # Idempotent: safe to re-run after config changes or on an existing install.
-# Also serves as the entry point for CI (GitHub Actions sets CI=true).
 #
 # Usage:
-#   ./install.sh              — full production install
-#   CI=true ./install.sh      — CI smoke-test install (skips TLS/DynDNS/firewall)
+#   ./install.sh
 #
-# Prerequisites (production):
+# Prerequisites:
 #   - Docker with Compose plugin
 #   - gettext (provides envsubst): apt install gettext  /  pacman -S gettext
+#   - jq: apt install jq  /  pacman -S jq
 #   - .env filled in from .env.example
 # =============================================================================
 
@@ -35,8 +34,6 @@ step()  { echo -e "\n${BOLD}── $* ──${NC}"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-IS_CI="${CI:-false}"
-[[ "$IS_CI" == "true" ]] && info "Running in CI mode — TLS, DynDNS, firewall and lab user steps skipped."
 
 # =============================================================================
 # 1. Preflight checks
@@ -49,12 +46,15 @@ command -v docker >/dev/null 2>&1 \
 docker compose version >/dev/null 2>&1 \
   || die "Docker Compose plugin not found. Install with: apt install docker-compose-plugin  (or equivalent for your distro)"
 
+command -v jq >/dev/null 2>&1 \
+  || die "jq not found. Install jq:\n  Ubuntu/Debian: apt install jq\n  Arch:          pacman -S jq"
+
+ok "Docker $(docker --version | awk '{print $3}' | tr -d ',') with Compose plugin found."
 command -v envsubst >/dev/null 2>&1 \
   || die "envsubst not found. Install gettext:\n  Ubuntu/Debian: apt install gettext\n  Arch:          pacman -S gettext"
 
-ok "Docker $(docker --version | awk '{print $3}' | tr -d ',') with Compose plugin found."
 ok "envsubst found."
-
+ok "jq found."
 # =============================================================================
 # 2. Environment file
 # =============================================================================
@@ -83,17 +83,15 @@ _reread_var NAMEDOTCOM_USER
 
 # Validate required variables (stricter in production than CI).
 REQUIRED_VARS_ALWAYS=(GF_ADMIN_PASSWORD)
-REQUIRED_VARS_PROD=(DOMAIN SMTP_PASSWORD SMTP_FROM DUCKDNS_TOKEN DUCKDNS_SUBDOMAINS NAMEDOTCOM_USER NAMEDOTCOM_API_TOKEN)
+REQUIRED_VARS_PROD=(DOMAIN SMTP_FROM DUCKDNS_TOKEN DUCKDNS_SUBDOMAINS NAMEDOTCOM_USER NAMEDOTCOM_API_TOKEN)
 
 for var in "${REQUIRED_VARS_ALWAYS[@]}"; do
   [[ -n "${!var:-}" ]] || die "Required variable '$var' is not set in .env"
 done
 
-if [[ "$IS_CI" != "true" ]]; then
-  for var in "${REQUIRED_VARS_PROD[@]}"; do
-    [[ -n "${!var:-}" ]] || warn "Variable '$var' is empty in .env — some features will not work."
-  done
-fi
+for var in "${REQUIRED_VARS_PROD[@]}"; do
+  [[ -n "${!var:-}" ]] || warn "Variable '$var' is empty in .env — some features will not work."
+done
 
 ok "Environment loaded."
 
@@ -122,78 +120,73 @@ ok "config/alertmanager/alertmanager.runtime.yml generated (untracked)."
 # DuckDNS is configured entirely via env vars in docker-compose.yml — no file generation needed.
 
 # =============================================================================
-# 4. Firewall — restrict Pushgateway to trusted CIDR (production only)
+# 4. Firewall — restrict Pushgateway to trusted CIDR
 # =============================================================================
-if [[ "$IS_CI" != "true" ]]; then
-  step "Firewall"
-  if command -v ufw >/dev/null 2>&1; then
-    if [[ -n "${ALLOWED_PUSH_CIDR:-}" ]]; then
-      info "Restricting port 9091 (Pushgateway) to $ALLOWED_PUSH_CIDR"
+step "Firewall"
+if command -v ufw >/dev/null 2>&1; then
+  if [[ -n "${ALLOWED_PUSH_CIDR:-}" ]]; then
+    info "Restricting port 9091 (Pushgateway) to $ALLOWED_PUSH_CIDR"
 
-      ufw_allow_rule_exists() {
-        ufw status 2>/dev/null | awk -v cidr="$ALLOWED_PUSH_CIDR" '
-          $1=="9091/tcp" && $2=="ALLOW" && $3==cidr { found=1 }
-          END { exit(found ? 0 : 1) }
-        '
-      }
+    ufw_allow_rule_exists() {
+      ufw status 2>/dev/null | awk -v cidr="$ALLOWED_PUSH_CIDR" '
+        $1=="9091/tcp" && $2=="ALLOW" && $3==cidr { found=1 }
+        END { exit(found ? 0 : 1) }
+      '
+    }
 
-      ufw_deny_rule_exists() {
-        ufw status 2>/dev/null | awk '
-          ($1=="9091" || $1=="9091/tcp") && $2=="DENY" { found=1 }
-          END { exit(found ? 0 : 1) }
-        '
-      }
+    ufw_deny_rule_exists() {
+      ufw status 2>/dev/null | awk '
+        ($1=="9091" || $1=="9091/tcp") && $2=="DENY" { found=1 }
+        END { exit(found ? 0 : 1) }
+      '
+    }
 
-      # Allow must be inserted before deny so it is evaluated first.
-      if ufw insert 1 allow from "$ALLOWED_PUSH_CIDR" to any port 9091 proto tcp >/dev/null 2>&1; then
-        ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091"
-      elif ufw_allow_rule_exists; then
-        ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091 already exists."
-      else
-        die "Failed to apply ufw allow rule for $ALLOWED_PUSH_CIDR on port 9091. Run install.sh with sufficient privileges and a valid ALLOWED_PUSH_CIDR."
-      fi
-
-      if ufw deny 9091 >/dev/null 2>&1; then
-        ok "ufw: deny 9091"
-      elif ufw_deny_rule_exists; then
-        ok "ufw: deny 9091 already exists."
-      else
-        die "Failed to apply ufw deny 9091 rule. Pushgateway may be exposed."
-      fi
-
-      ok "Firewall configured."
+    # Allow must be inserted before deny so it is evaluated first.
+    if ufw insert 1 allow from "$ALLOWED_PUSH_CIDR" to any port 9091 proto tcp >/dev/null 2>&1; then
+      ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091"
+    elif ufw_allow_rule_exists; then
+      ok "ufw: allow $ALLOWED_PUSH_CIDR → 9091 already exists."
     else
-      warn "ALLOWED_PUSH_CIDR is not set — port 9091 (Pushgateway) is open to all."
-      warn "Set ALLOWED_PUSH_CIDR in .env to your college network CIDR and re-run install.sh."
+      die "Failed to apply ufw allow rule for $ALLOWED_PUSH_CIDR on port 9091. Run install.sh with sufficient privileges and a valid ALLOWED_PUSH_CIDR."
     fi
+
+    if ufw deny 9091 >/dev/null 2>&1; then
+      ok "ufw: deny 9091"
+    elif ufw_deny_rule_exists; then
+      ok "ufw: deny 9091 already exists."
+    else
+      die "Failed to apply ufw deny 9091 rule. Pushgateway may be exposed."
+    fi
+
+    ok "Firewall configured."
   else
-    warn "ufw not found — skipping firewall setup. Secure port 9091 manually if needed."
+    warn "ALLOWED_PUSH_CIDR is not set — port 9091 (Pushgateway) is open to all."
+    warn "Set ALLOWED_PUSH_CIDR in .env to your college network CIDR and re-run install.sh."
   fi
+else
+  warn "ufw not found — skipping firewall setup. Secure port 9091 manually if needed."
 fi
 
 # =============================================================================
-# 5. Pull images
+# 5. Pull and build images
 # =============================================================================
 step "Pulling images"
 
-if [[ "$IS_CI" == "true" ]]; then
-  docker compose pull
-else
-  docker compose --profile production pull
-fi
+docker compose pull
 ok "Images up to date."
+
+# Build all locally-defined services (alert-api, caddy).  Always rebuilds so
+# code changes are picked up on re-runs without needing --build or docker build.
+step "Building local images"
+docker compose build
+ok "Local images built."
 
 # =============================================================================
 # 6. Start (or restart updated) stack
 # =============================================================================
-step "Starting stack"
 
-if [[ "$IS_CI" == "true" ]]; then
-  docker compose up -d
-else
-  docker compose --profile production up -d
-fi
-ok "Stack started."
+docker compose up -d
+ok "Core stack started."
 
 # =============================================================================
 # 7. Health checks
@@ -228,9 +221,9 @@ wait_for "Alertmanager" "http://localhost:9093/-/healthy"  "200"
 wait_for "Grafana"      "http://localhost:3000/api/health" "200"
 
 # =============================================================================
-# 8. Create lab user account (production only)
+# 8. Create lab user account
 # =============================================================================
-if [[ "$IS_CI" != "true" ]] && [[ -n "${LAB_USER_LOGIN:-}" ]]; then
+if [[ -n "${LAB_USER_LOGIN:-}" ]]; then
   step "Lab user"
 
   GRAFANA_ADMIN="${GF_ADMIN_USER:-admin}:${GF_ADMIN_PASSWORD}"
@@ -263,6 +256,13 @@ if [[ "$IS_CI" != "true" ]] && [[ -n "${LAB_USER_LOGIN:-}" ]]; then
   fi
 fi
 
+
+# =============================================================================
+# 8b. Alert UI setup (SA, policy, alert-api, E2E test)
+# =============================================================================
+step "Alert UI setup"
+bash "${SCRIPT_DIR}/install_alert_ui.sh"
+
 # =============================================================================
 # 9. Summary
 # =============================================================================
@@ -275,9 +275,8 @@ echo -e "${GREEN}${BOLD}╔═════════════════�
 echo -e "${GREEN}${BOLD}║     Fridge Monitoring Stack is Running       ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-if [[ "$IS_CI" != "true" ]]; then
-  echo -e "  ${BOLD}Grafana (public):${NC}    ${GRAFANA_PUBLIC_URL:-https://${DOMAIN}}"
-fi
+echo -e "  ${BOLD}Grafana (public):${NC}    ${GRAFANA_PUBLIC_URL:-https://${DOMAIN}}"
+echo -e "  ${BOLD}Alert Manager:${NC}       ${GRAFANA_PUBLIC_URL:-https://${DOMAIN}}/alerts/"
 echo -e "  ${BOLD}Grafana (local):${NC}     http://localhost:3000"
 echo -e "  ${BOLD}Pushgateway:${NC}         http://${HOST_IP}:9091"
 echo -e "  ${BOLD}Prometheus:${NC}          http://localhost:9090"
@@ -287,12 +286,10 @@ echo -e "  ${BOLD}Send fridge metrics to:${NC}"
 echo -e "    http://${HOST_IP}:9091"
 echo -e "    (Set PUSHGATEWAY_URL in each fridge's server.env)"
 echo ""
-if [[ "$IS_CI" != "true" ]]; then
-  echo -e "  ${BOLD}Grafana admin:${NC}    ${GF_ADMIN_USER:-admin} / [your .env password]"
-  [[ -n "${LAB_USER_LOGIN:-}" ]] && \
-    echo -e "  ${BOLD}Grafana lab user:${NC} ${LAB_USER_LOGIN} / [your .env password]"
-  echo ""
-  echo -e "  ${BOLD}To stop:${NC}  docker compose --profile production down"
-  echo -e "  ${BOLD}To update config:${NC}  edit .env → re-run ./install.sh"
-fi
+echo -e "  ${BOLD}Grafana admin:${NC}    ${GF_ADMIN_USER:-admin} / [your .env password]"
+[[ -n "${LAB_USER_LOGIN:-}" ]] && \
+  echo -e "  ${BOLD}Grafana lab user:${NC} ${LAB_USER_LOGIN} / [your .env password]"
+echo ""
+echo -e "  ${BOLD}To stop:${NC}  docker compose down"
+echo -e "  ${BOLD}To update config:${NC}  edit .env → re-run ./install.sh"
 echo ""

@@ -1,0 +1,15 @@
+apiVersion: 1
+
+templates:
+  - name: ng_alert_notification
+    template: |
+      {{ define "ng_alert_notification" -}}
+      {{ range .Alerts -}}
+      <b>Rule:</b> {{ or .Labels.rulename .Labels.alertname "Alert" }}<br>
+      <b>Fridge:</b> {{ or .Labels.fridge .Labels.instance "Unknown" }}<br>
+      {{ if .Annotations.summary -}}
+      <b>Summary:</b> {{ .Annotations.summary }}<br>
+      {{ end -}}
+      <br>
+      {{ end -}}
+      {{- end }}

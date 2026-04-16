@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fridge Alert Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── Login modal ──────────────────────────────────────────────────────────── -->
+<div id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="login-box">
+    <h2 id="login-title">Sign in</h2>
+    <p>Use your Grafana username and password.</p>
+    <form id="login-form">
+      <div class="form-group" style="margin-bottom:12px">
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text" autocomplete="username" required />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
+      <div class="login-error" id="login-error"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Header ───────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <h1>&#10052; Fridge Alert Manager</h1>
+    <h1><a href="https://websites.umass.edu/ipelenur/2026/04/06/cooling-water-temperature/">Open Graphs</a></h1>
+    <div class="header-user">
+      <span id="header-username"></span>
+      <button class="btn btn-primary btn-sm" id="btn-signout">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ── Alert list ─────────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header alerts-header">
+      <div class="card-header-left"><h2>All Alerts</h2></div>
+      <div class="card-header-center">
+        <div class="card-header-controls fridge-controls" style="display:flex;gap:8px;align-items:center;justify-content:center">
+          <button id="btn-manny-all" class="btn btn-secondary btn-sm" type="button">…</button>
+          <button id="btn-dodo-all" class="btn btn-secondary btn-sm" type="button">…</button>
+        </div>
+      </div>
+      <div class="card-header-right"><span id="refresh-indicator" style="font-size:13px"></span></div>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap">
+        <table id="alerts-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>
+                <button type="button" class="th-sort" id="sort-status" onclick="setAlertSort('status')" aria-label="Sort by status">
+                  Status <span id="sort-status-ind" class="th-sort-ind"></span>
+                </button>
+              </th>
+              <th>
+                <button type="button" class="th-sort" id="sort-fridge" onclick="setAlertSort('fridge')" aria-label="Sort by fridge">
+                  Fridge <span id="sort-fridge-ind" class="th-sort-ind"></span>
+                </button>
+              </th>
+              <th class="col-metric">Metric</th>
+              <th class="col-operator">Condition</th>
+              <th>Current Value</th>
+              <th>Recipients</th>
+              <th>On/Off</th>
+              <th>Delete</th>
+            </tr>
+          </thead>
+          <tbody id="alerts-body">
+            <tr class="empty-row"><td colspan="8">Loading&hellip;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Create alert form ─────────────────────────────────────────────────── -->
+  <div class="card" id="create-card">
+    <div class="card-header">
+      <h2>Create New Alert</h2>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-use-template">Use Template</button>
+    </div>
+    <div class="card-body">
+      <form id="create-form">
+        <div class="form-grid create-alert-grid">
+
+          <div class="form-group">
+            <label for="f-fridge">Fridge</label>
+            <select id="f-fridge" required>
+              <option value="">— select —</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="f-name">Alert Name</label>
+            <input id="f-name" type="text" placeholder="e.g. Manny MXC too warm" maxlength="100" required />
+          </div>
+
+          <div class="equation-row" aria-label="Alert equation">
+            <div class="form-group">
+              <label for="f-metric">Metric</label>
+              <select id="f-metric" required>
+                <option value="">— select fridge first —</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="f-operator">Operator</label>
+              <select id="f-operator" required>
+                <option value="">— select —</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="f-threshold">Threshold</label>
+              <input id="f-threshold" type="number" step="0.001" placeholder="0.030" required />
+            </div>
+          </div>
+
+          <input id="f-duration" type="hidden" value="1m" />
+
+          <p class="form-hint">Notifications route to all recipients via the notification policy.</p>
+
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="btn-create">Create Alert</button>
+          <span id="create-status" style="font-size:13px"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Recipients panel ──────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Notification Recipients</h2>
+      <button class="btn btn-primary btn-sm" id="recipient-toggle" aria-expanded="false">
+        &#43; Add recipient
+      </button>
+    </div>
+    <div class="card-body">
+      <div class="notify-context" role="note" aria-label="Notification routing context">
+        <p><strong>Alert email sender (~3-5 mins):</strong> alerts.wanglab@gmail.com</p>
+        <p><strong>Slack channel (~1 min):</strong> #fridge-alerts</p>
+        <p>Click each name below to configure alert settings. Alerts that are <strong>FIRING</strong> will email first, then continue to email every <span id="refire-time">…</span> hours.</p>
+      </div>
+
+      <!-- Add recipient form (collapsible) -->
+      <div class="collapse-content" id="recipient-form-wrap">
+        <form id="recipient-form" style="margin-bottom:16px">
+          <div class="form-grid" style="max-width:480px">
+            <div class="form-group">
+              <label for="r-name">Name</label>
+              <input id="r-name" type="text" maxlength="50" placeholder="Alice" required />
+            </div>
+            <div class="form-group">
+              <label for="r-email">Email</label>
+              <input id="r-email" type="email" placeholder="alice@lab.edu" required />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Add</button>
+            <span id="recipient-status" style="font-size:13px"></span>
+          </div>
+        </form>
+        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:14px" />
+      </div>
+
+      <!-- Recipient list -->
+      <ul class="recipient-list" id="recipient-list">
+        <li>Loading&hellip;</li>
+      </ul>
+    </div>
+  </div>
+
+</div><!-- /.container -->
+
+<div class="container" id="assignment-panel-container" hidden>
+  <div class="card" id="assignment-panel">
+    <div class="card-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2 id="assignment-panel-title">Alert assignments</h2>
+        <button class="btn btn-danger btn-sm" id="assignment-delete-recipient">Delete recipient</button>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="assignment-close">&#10005; Close</button>
+    </div>
+    <div class="card-body">
+      <div class="assignment-auto-subscribe">
+        <label>
+          <input type="checkbox" id="assignment-auto-subscribe" />
+          <strong>Auto-subscribe to new alerts</strong>
+        </label>
+      </div>
+      <p style="font-size:13px;margin-bottom:14px">Check which alerts this recipient should receive. Unchecked alerts will not be sent to this recipient.</p>
+      <ul id="assignment-list" class="assignment-list"></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ────────────────────────────────────────────────────────────────── -->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

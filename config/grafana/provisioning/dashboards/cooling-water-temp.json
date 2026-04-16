@@ -15,7 +15,7 @@
       }
     ]
   },
-  "description": "Cooling water inlet/outlet temperature for Manny and Dodo. Dodo sensor reports in Fahrenheit (mislabelled as Celsius) \u2014 converted to \u00b0C here.",
+  "description": "Cooling water inlet/outlet temperature for Manny and Dodo. All values are in \u00b0C \u2014 the Dodo uploader converts from the sensor\u2019s mislabelled \u00b0F reading before pushing.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -188,7 +188,7 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "(cpatempwi_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
+          "expr": "cpatempwi_celsius{instance=\"fridge-dodo\"}",
           "legendFormat": "Dodo Input",
           "range": true,
           "refId": "C"
@@ -199,7 +199,7 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "(cpatempwo_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
+          "expr": "cpatempwo_celsius{instance=\"fridge-dodo\"}",
           "legendFormat": "Dodo Output",
           "range": true,
           "refId": "D"
@@ -408,7 +408,7 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "(cpatempwi_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
+          "expr": "cpatempwi_celsius{instance=\"fridge-dodo\"}",
           "instant": true,
           "legendFormat": "Dodo Input",
           "range": false,
@@ -474,7 +474,7 @@
             "uid": "P1809F7CD0C75ACF3"
           },
           "editorMode": "code",
-          "expr": "(cpatempwo_celsius{instance=\"fridge-dodo\"} - 32) * 5 / 9",
+          "expr": "cpatempwo_celsius{instance=\"fridge-dodo\"}",
           "instant": true,
           "legendFormat": "Dodo Output",
           "range": false,

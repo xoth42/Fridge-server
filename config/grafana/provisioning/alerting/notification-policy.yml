@@ -1,0 +1,5 @@
+apiVersion: 1
+# Notification policy is managed via the alert-api (rebuild_notification_policy).
+# Keeping this file empty so Grafana does not take file-provenance ownership,
+# which would prevent the API from updating it.
+policies: []

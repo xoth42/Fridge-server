@@ -1,0 +1,38 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: Admin-Email
+    receivers:
+      - uid: cp-lab-email
+        type: email
+        settings:
+          addresses: $ALERT_EMAIL_TO
+          singleEmail: false
+          subject: >-
+            {{ or .CommonLabels.rulename .CommonLabels.alertname "Alert" }}
+            — {{ or .CommonLabels.fridge .CommonLabels.instance "Unknown" }}
+          message: |-
+            {{ range .Alerts -}}
+            {{ or .Labels.rulename .Labels.alertname "Alert" }}
+            {{ or .Labels.fridge .Labels.instance "Unknown" }}
+            {{ if .Annotations.summary -}}
+            {{ .Annotations.summary }}
+            {{ end -}}
+            
+            {{ end -}}
+
+  - orgId: 1
+    name: Slack-Channel
+    receivers:
+      - uid: cp-lab-slack
+        type: slack
+        settings:
+          url: $SLACK_WEBHOOK_URL
+          title: >-
+            {{ or .CommonLabels.rulename .CommonLabels.alertname "Alert" }}
+            — {{ or .CommonLabels.fridge .CommonLabels.instance "Unknown" }}
+          text: |-
+            {{ range .Alerts -}}
+            {{ .Annotations.summary }}
+            {{ end -}}
