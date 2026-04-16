@@ -5,6 +5,9 @@
  * On 401, the login modal is shown and the credential is cleared.
  *
  * All fetch paths are absolute from the site root so they work behind Caddy.
+ * 
+ * Note. Do not use auto-scrolling! This sucks for the user.
+ * Try to work with the user, avoid disrupting them.
  */
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -201,6 +204,44 @@ document.getElementById('f-fridge').addEventListener('change', (e) => {
   populateMetricDropdown(e.target.value);
 });
 
+// Load notification policy (public) and render repeat_interval as hours
+function parseRepeatIntervalToHours(s) {
+  if (!s) return null;
+  const unitToSeconds = { s: 1, m: 60, h: 3600, d: 86400 };
+  let totalSeconds = 0;
+  const re = /([0-9]+(?:\.[0-9]+)?)([smhd])/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const val = parseFloat(m[1]);
+    const unit = m[2];
+    const mul = unitToSeconds[unit] || 0;
+    totalSeconds += val * mul;
+  }
+  if (totalSeconds === 0) return null;
+  const hours = Math.round((totalSeconds / 3600) * 10) / 10;
+  return hours;
+}
+
+async function loadPolicy() {
+  try {
+    const resp = await fetch('/alerts/api/policy');
+    if (!resp.ok) return;
+    const policy = await resp.json();
+    const rep = policy?.repeat_interval || policy?.repeatInterval || '';
+    const el = document.getElementById('refire-time');
+    if (!el) return;
+    const hours = parseRepeatIntervalToHours(String(rep));
+    if (hours === null) {
+      el.textContent = rep || 'N/A';
+    } else {
+      const txt = Number.isInteger(hours) ? String(hours) : String(hours);
+      el.textContent = txt.replace(/\.0$/, '');
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
 // ── Alert table ─────────────────────────────────────────────────────────────
 
 async function loadAlerts() {
@@ -218,6 +259,8 @@ async function loadAlerts() {
     renderAlerts(alerts);
     document.getElementById('refresh-indicator').textContent =
       'Updated ' + new Date().toLocaleTimeString();
+    // Refresh fridge-level quick-toggle buttons whenever alerts update
+    try { updateFridgeButtons(); } catch (_) {}
   } catch (err) {
     if (err.message !== 'Unauthenticated') {
       document.getElementById('alerts-body').innerHTML =
@@ -398,6 +441,7 @@ async function pollAlertEnabled(uid, expected, { intervalMs = 600, maxAttempts =
         renderAlerts(alerts);
         document.getElementById('refresh-indicator').textContent =
           'Updated ' + new Date().toLocaleTimeString();
+        try { updateFridgeButtons(); } catch (_) {}
         return true;
       }
     } catch (_) {
@@ -405,6 +449,124 @@ async function pollAlertEnabled(uid, expected, { intervalMs = 600, maxAttempts =
     }
   }
   return false;
+}
+
+// ── Batch fridge enable/disable helpers ─────────────────────────────────────
+
+async function pollFridgeEnabled(fridgeName, expected, { intervalMs = 600, maxAttempts = 12 } = {}) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    try {
+      const resp = await apiFetch('/alerts');
+      if (!resp.ok) break;
+      const alerts = await resp.json();
+      window._alertsCache = alerts;
+      const matches = alerts.filter((a) => String(a.fridge || '').toLowerCase() === String(fridgeName).toLowerCase());
+      if (matches.length === 0) {
+        // nothing to confirm; treat as success
+        renderAlerts(alerts);
+        return true;
+      }
+      const allMatch = matches.every((a) => a.enabled === expected);
+      if (allMatch) {
+        renderAlerts(alerts);
+        document.getElementById('refresh-indicator').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        return true;
+      }
+    } catch (_e) {
+      break;
+    }
+  }
+  return false;
+}
+
+async function toggleAllForFridge(fridgeName, btn) {
+  if (!btn) return;
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '…';
+  try {
+    const alerts = window._alertsCache || [];
+    const fridgeNameLower = String(fridgeName || '').toLowerCase();
+    // Determine candidate fridge ids from metricsData.fridges (match by label or id)
+    const candidateIds = (metricsData.fridges || [])
+      .filter((f) => {
+        const lab = String(f.label || '').toLowerCase();
+        const id = String(f.id || '').toLowerCase();
+        return lab.includes(fridgeNameLower) || id.includes(fridgeNameLower) || id === fridgeNameLower;
+      })
+      .map((f) => f.id);
+    const matches = alerts.filter((a) => {
+      const af = String(a.fridge || '').toLowerCase();
+      return candidateIds.includes(a.fridge) || af.includes(fridgeNameLower) || candidateIds.includes(af);
+    });
+    if (matches.length === 0) {
+      toast(`No alerts found for ${fridgeName}.`);
+      return;
+    }
+    const anyEnabled = matches.some((a) => a.enabled);
+    const desiredEnabled = !anyEnabled; // if any enabled -> disable all (false); else enable all (true)
+
+    // Apply changes sequentially to be conservative with API
+    const failures = [];
+    for (const a of matches) {
+      try {
+        const resp = await apiFetch(`/alerts/${a.uid}/enabled`, {
+          method: 'PATCH',
+          body: JSON.stringify({ enabled: desiredEnabled }),
+        });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          failures.push({ uid: a.uid, detail: body.detail || `Error ${resp.status}` });
+        }
+      } catch (err) {
+        failures.push({ uid: a.uid, detail: err.message || String(err) });
+      }
+    }
+
+    // Poll until all match the desired state
+    const confirmed = await pollFridgeEnabled(fridgeName, desiredEnabled);
+    if (failures.length === 0 && confirmed) {
+      toast(`All ${fridgeName} alerts ${desiredEnabled ? 'enabled' : 'disabled'}.`);
+    } else {
+      toast('Some changes failed or not confirmed — check Grafana.', 'error');
+    }
+  } finally {
+    updateFridgeButtons();
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+function updateFridgeButtons() {
+  const btnManny = document.getElementById('btn-manny-all');
+  const btnDodo = document.getElementById('btn-dodo-all');
+  const alerts = window._alertsCache || [];
+
+  const setup = (btn, fridgeLabel) => {
+    if (!btn) return;
+    const fridgeLabelLower = String(fridgeLabel || '').toLowerCase();
+    const candidateIds = (metricsData.fridges || []).filter((f) => {
+      const lab = String(f.label || '').toLowerCase();
+      const id = String(f.id || '').toLowerCase();
+      return lab.includes(fridgeLabelLower) || id.includes(fridgeLabelLower) || id === fridgeLabelLower;
+    }).map((f) => f.id);
+    const matches = alerts.filter((a) => {
+      const af = String(a.fridge || '').toLowerCase();
+      return candidateIds.includes(a.fridge) || af.includes(fridgeLabelLower) || candidateIds.includes(af);
+    });
+    if (matches.length === 0) {
+      btn.disabled = true;
+      btn.textContent = `No ${fridgeLabel} alerts`;
+      return;
+    }
+    const anyEnabled = matches.some((a) => a.enabled);
+    btn.disabled = false;
+    btn.textContent = anyEnabled ? `Disable ${fridgeLabel} Alerts` : `Enable ${fridgeLabel} Alerts`;
+  };
+
+  setup(btnManny, 'Manny');
+  setup(btnDodo, 'Dodo');
 }
 
 async function deleteAlert(uid, btn) {
@@ -447,12 +609,20 @@ function editAlert(alert) {
   const tplBtn = document.getElementById('btn-use-template');
   tplBtn.textContent = 'Use Template';
   tplBtn.className = 'btn btn-secondary btn-sm';
+  // Highlight the Create Alert card to indicate editing state (no auto-scrolling)
+  const createCard = document.getElementById('create-card');
+  if (createCard) {
+    createCard.classList.add('editing');
+  }
 }
 
 // ── Alert templates ──────────────────────────────────────────────────────────
 
 document.getElementById('btn-use-template').addEventListener('click', () => {
   const btn = document.getElementById('btn-use-template');
+  // If user chooses a template, clear any existing "editing" highlight
+  const createCard = document.getElementById('create-card');
+  if (createCard) createCard.classList.remove('editing');
   templateIndex++;
   if (templateIndex >= ALERT_TEMPLATES.length) {
     templateIndex = -1;
@@ -538,6 +708,9 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
       if (resp.ok) {
         toast(`Alert "${data.title}" created.`);
         e.target.reset();
+        // Clear any editing highlight since we've created/cleared the form
+        const createCard = document.getElementById('create-card');
+        if (createCard) createCard.classList.remove('editing');
         populateFridgeDropdown();
         document.getElementById('f-metric').innerHTML =
           '<option value="">— select fridge first —</option>';
@@ -707,8 +880,17 @@ function openAssignmentPanel(contactUid, contactName) {
 
   // Wire up delete-recipient button with current recipient context
   const deleteBtn = document.getElementById('assignment-delete-recipient');
-  deleteBtn.onclick = () => deleteRecipient(contactUid, contactName, deleteBtn);
-  deleteBtn.disabled = false;
+  // Disable deletion if this recipient is file-provisioned (managed in config)
+  const rec = (window._recipientsCache || []).find((r) => r.uid === contactUid);
+  if (rec && rec.provisioned) {
+    deleteBtn.disabled = true;
+    deleteBtn.title = 'This recipient is provisioned in Grafana and cannot be deleted via the UI. Remove it from config/grafana/provisioning/alerting/contact-points.yml to delete it.';
+    deleteBtn.onclick = null;
+  } else {
+    deleteBtn.disabled = false;
+    deleteBtn.title = '';
+    deleteBtn.onclick = () => deleteRecipient(contactUid, contactName, deleteBtn);
+  }
 
   const alerts = window._alertsCache || [];
   const list = document.getElementById('assignment-list');
@@ -904,13 +1086,21 @@ function escHtml(str) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 (async function init() {
-  // Always load public metrics config so dropdowns are ready
+  // Always load public policy and metrics so UI shows correct info
+  await loadPolicy();
   await loadMetrics();
 
   if (authHeader) {
     // Show username from stored token
     document.getElementById('header-username').textContent = storedUsername();
     await loadAll();
+    // Wire up fridge-level quick-toggle buttons
+    const btnManny = document.getElementById('btn-manny-all');
+    if (btnManny) btnManny.addEventListener('click', () => toggleAllForFridge('Manny', btnManny));
+    const btnDodo = document.getElementById('btn-dodo-all');
+    if (btnDodo) btnDodo.addEventListener('click', () => toggleAllForFridge('Dodo', btnDodo));
+    // Ensure buttons reflect current alert state
+    updateFridgeButtons();
   } else {
     showLogin();
   }

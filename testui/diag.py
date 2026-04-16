@@ -234,8 +234,8 @@ def simulate_policy(
     return {
         "receiver": "lab-email",
         "group_by": [],
-        "group_wait": "30s",
-        "group_interval": "5m",
+        "group_wait": "10s",
+        "group_interval": "2m",
         "repeat_interval": "4h",
         "routes": per_recipient + catch_all,
     }

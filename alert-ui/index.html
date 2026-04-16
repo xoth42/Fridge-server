@@ -32,6 +32,7 @@
 <header>
   <div class="header-inner">
     <h1>&#10052; Fridge Alert Manager</h1>
+    <h1><a href="https://websites.umass.edu/ipelenur/2026/04/06/cooling-water-temperature/">Open Graphs</a></h1>
     <div class="header-user">
       <span id="header-username"></span>
       <button class="btn btn-primary btn-sm" id="btn-signout">Sign out</button>
@@ -43,9 +44,15 @@
 
   <!-- ── Alert list ─────────────────────────────────────────────────────────── -->
   <div class="card">
-    <div class="card-header">
-      <h2>Active Alerts</h2>
-      <span id="refresh-indicator" style="font-size:13px"></span>
+    <div class="card-header alerts-header">
+      <div class="card-header-left"><h2>All Alerts</h2></div>
+      <div class="card-header-center">
+        <div class="card-header-controls fridge-controls" style="display:flex;gap:8px;align-items:center;justify-content:center">
+          <button id="btn-manny-all" class="btn btn-secondary btn-sm" type="button">…</button>
+          <button id="btn-dodo-all" class="btn btn-secondary btn-sm" type="button">…</button>
+        </div>
+      </div>
+      <div class="card-header-right"><span id="refresh-indicator" style="font-size:13px"></span></div>
     </div>
     <div class="card-body" style="padding:0">
       <div class="table-wrap">
@@ -65,7 +72,7 @@
               </th>
               <th class="col-metric">Metric</th>
               <th class="col-operator">Condition</th>
-              <th>Current</th>
+              <th>Current Value</th>
               <th>Recipients</th>
               <th>On/Off</th>
               <th>Delete</th>
@@ -80,9 +87,9 @@
   </div>
 
   <!-- ── Create alert form ─────────────────────────────────────────────────── -->
-  <div class="card">
+  <div class="card" id="create-card">
     <div class="card-header">
-      <h2>Create Alert</h2>
+      <h2>Create New Alert</h2>
       <button type="button" class="btn btn-secondary btn-sm" id="btn-use-template">Use Template</button>
     </div>
     <div class="card-body">
@@ -148,7 +155,7 @@
       <div class="notify-context" role="note" aria-label="Notification routing context">
         <p><strong>Alert email sender (~3-5 mins):</strong> alerts.wanglab@gmail.com</p>
         <p><strong>Slack channel (~1 min):</strong> #fridge-alerts</p>
-        <p>Click each name below to configure alert settings</p>
+        <p>Click each name below to configure alert settings. Alerts that are <strong>FIRING</strong> will email first, then continue to email every <span id="refire-time">…</span> hours.</p>
       </div>
 
       <!-- Add recipient form (collapsible) -->

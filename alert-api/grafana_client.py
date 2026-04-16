@@ -487,8 +487,8 @@ class GrafanaClient:
             "receiver": "lab-email",
             "group_by": [],
             "group_wait": "10s",
-            "group_interval": "5m",
-            "repeat_interval": "1h",
+            "group_interval": "2m",
+            "repeat_interval": "4h",
             "routes": per_recipient + catch_all,
         }
         # Always use the service account token for the provisioning API write —
@@ -505,6 +505,30 @@ class GrafanaClient:
                 reset_resp.raise_for_status()
                 resp = await client.put("/api/v1/provisioning/policies", json=policy)
             resp.raise_for_status()
+
+    async def get_notification_policy(self) -> dict | None:
+        """Return the current notification policy from Grafana provisioning API.
+
+        This attempts to GET `/api/v1/provisioning/policies` using the service
+        account token. On error or if the policy is not present, return None.
+        """
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url, headers=self._auth_headers, timeout=10.0
+            ) as client:
+                resp = await client.get("/api/v1/provisioning/policies")
+                if resp.status_code != 200:
+                    return None
+                try:
+                    body = resp.json()
+                except Exception:
+                    return None
+                # Normalize to a dict when a single-item list is returned
+                if isinstance(body, list) and len(body) == 1:
+                    return body[0]
+                return body
+        except httpx.HTTPError:
+            return None
 
     # ── Folders ───────────────────────────────────────────────────────────────
 

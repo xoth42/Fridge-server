@@ -175,6 +175,38 @@ async def get_metrics() -> MetricsResponse:
     )
 
 
+@app.get("/api/policy")
+async def get_policy() -> dict:
+    """Public — return the notification policy defaults used by the API.
+
+    This mirrors the values used when rebuilding the Grafana notification
+    policy so the frontend can display the live refire (repeat) interval.
+    """
+    defaults = {"group_wait": "10s", "group_interval": "2m", "repeat_interval": "4h"}
+    # Try to fetch live policy from Grafana; fall back to defaults on any error.
+    try:
+        policy = await _grafana.get_notification_policy()
+    except Exception:
+        policy = None
+
+    if not policy:
+        return defaults
+
+    p = policy[0] if isinstance(policy, list) and policy else (policy if isinstance(policy, dict) else None)
+    if not p:
+        return defaults
+
+    group_wait = p.get("group_wait") or p.get("groupWait") or defaults["group_wait"]
+    group_interval = p.get("group_interval") or p.get("groupInterval") or defaults["group_interval"]
+    repeat_interval = p.get("repeat_interval") or p.get("repeatInterval") or defaults["repeat_interval"]
+
+    return {
+        "group_wait": group_wait,
+        "group_interval": group_interval,
+        "repeat_interval": repeat_interval,
+    }
+
+
 async def _fetch_prometheus_value(metric: str, fridge: str) -> Optional[float]:
     try:
         async with httpx.AsyncClient(base_url=PROMETHEUS_URL, timeout=5.0) as client:
@@ -413,8 +445,20 @@ async def delete_recipient(uid: str, authorization: Annotated[Optional[str], Hea
     try:
         await _grafana.delete_contact_point(uid)
     except httpx.HTTPStatusError as exc:
+        # If not found, mirror 404. If Grafana refuses (409), provide a clearer
+        # explanation that the contact point is file-provisioned and must be
+        # removed from provisioning config rather than deleted via the API.
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Recipient not found")
+        if exc.response.status_code == 409:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Recipient cannot be deleted: it appears to be file-provisioned. "
+                    "Remove it from config/grafana/provisioning/alerting/contact-points.yml "
+                    "and reload/restart Grafana, or delete the provisioning entry instead."
+                ),
+            )
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
     # Rebuild policy so the deleted contact point is removed from catch-all routes.
@@ -448,6 +492,7 @@ async def list_recipients() -> list[RecipientListItem]:
             uid=cp.get("uid", ""),
             name=cp.get("name", ""),
             type=cp.get("type", ""),
+            provisioned=(cp.get("provenance") == "file"),
             auto_subscribe=auto_settings.get(cp.get("uid", ""), True),
         )
         for cp in raw

@@ -5,9 +5,8 @@
 # Handles everything that requires Grafana to already be running:
 #   1. Grafana service account (SA) — ensures Admin role, rotates token if stale
 #   2. alert-api — starts and verifies health
-#   3. Grafana notification policy — bootstraps initial routing structure
-#   3b. Notification policy repair — rebuilds full per-recipient routes via alert-api
-#   3c. Routing verification — confirms every email contact point has a route
+#   3. Grafana notification policy — full rebuild via alert-api (idempotent)
+#   3b. Routing verification — confirms every email contact point has a route
 #   4. E2E email delivery test — proves the full Alertmanager routing path works
 #
 # Called automatically by install.sh after the core stack is healthy.
@@ -298,73 +297,16 @@ docker compose up -d alert-api >/dev/null 2>&1 || true
 wait_for "Alert API" "http://localhost:8000/api/health" "200"
 
 # =============================================================================
-# 3. Grafana notification policy bootstrap
+# 3. Grafana notification policy rebuild
 # =============================================================================
-# Sets the initial alert routing policy so timing and receivers are correct
-# from day one.  Uses X-Disable-Provenance so the API can overwrite it on
-# subsequent runs without needing a DELETE first.
+# Rebuilds the full notification policy via alert-api, which reads every
+# existing contact point and writes a complete routing tree:
+#   - per-alert routes for contacts assigned via notify_to labels
+#   - catch-all routes for every auto-subscribe email contact point
+#   - lab-slack catch-all
 #
-# Timing:
-#   group_wait      10s  — delay before first notification fires after alert enters pending
-#   group_interval   2m  — delay for follow-up batches within a group
-#   repeat_interval  4h  — re-notify interval for sustained alerts
-#
-# Only the provisioned receivers (lab-slack, lab-email) are seeded here.
-# Recipient-specific routes are added by the alert-api when users add contacts.
-
-step "Grafana notification policy"
-
-INITIAL_POLICY='{
-  "receiver": "lab-email",
-  "group_by": [],
-  "group_wait": "10s",
-  "group_interval": "2m",
-  "repeat_interval": "4h",
-  "routes": [
-    {"receiver": "lab-slack", "continue": true},
-    {"receiver": "lab-email", "continue": true}
-  ]
-}'
-
-_apply_policy() {
-  curl -s -o /tmp/_policy_resp.json -w '%{http_code}' \
-    -X PUT \
-    -u "$GRAFANA_ADMIN" \
-    -H "Content-Type: application/json" \
-    -H "X-Disable-Provenance: true" \
-    -d "$INITIAL_POLICY" \
-    "$POLICY_URL" 2>/dev/null || echo "000"
-}
-
-HTTP_CODE=$(_apply_policy)
-
-if [[ "$HTTP_CODE" == "202" ]]; then
-  ok "Grafana notification policy configured."
-elif grep -q "invalidProvenance" /tmp/_policy_resp.json 2>/dev/null; then
-  # Existing policy is file-provisioned — reset it first, then retry.
-  info "Policy has file provenance; resetting before re-applying..."
-  curl -s -X DELETE \
-    -u "$GRAFANA_ADMIN" \
-    -H "X-Disable-Provenance: true" \
-    "$POLICY_URL" >/dev/null 2>&1 || true
-  HTTP_CODE=$(_apply_policy)
-  [[ "$HTTP_CODE" == "202" ]] \
-    && ok "Grafana notification policy configured (after provenance reset)." \
-    || warn "Notification policy setup returned HTTP $HTTP_CODE — run: python3 testui/diag.py --rebuild"
-else
-  warn "Notification policy setup returned HTTP $HTTP_CODE — run: python3 testui/diag.py --rebuild"
-fi
-
-# =============================================================================
-# 3b. Force-rebuild notification policy via alert-api
-# =============================================================================
-# The policy bootstrap above (step 3) writes only the bare INITIAL_POLICY,
-# which has no per-recipient routes.  Any contact points that already exist in
-# Grafana (users added before this run) are not in those routes yet.
-#
-# This step calls /api/policy/rebuild which reads all current contact points
-# and rewrites the full policy, restoring any routes that were lost or that
-# never succeeded (e.g. because the SA was Editor-role on a prior install).
+# Handles file-provisioned policy (invalidProvenance) internally.
+# Idempotent — safe to run on every install whether recipients exist or not.
 
 step "Notification policy repair"
 
@@ -397,32 +339,36 @@ if ! command -v jq >/dev/null 2>&1; then
   warn "Install jq to enable this check."
 else
   POLICY_FILE=$(mktemp)
-  CP_FILE=$(mktemp)
+  RECIPIENTS_FILE=$(mktemp)
 
   curl -sS \
     -H "Authorization: Bearer ${GRAFANA_SA_TOKEN}" \
     "${GRAFANA_URL}/api/v1/provisioning/policies" > "$POLICY_FILE" 2>/dev/null || echo '{}' > "$POLICY_FILE"
 
+  # Use alert-api /api/recipients which includes auto_subscribe status.
+  # Only recipients with auto_subscribe=true need a catch-all route.
   curl -sS \
-    -H "Authorization: Bearer ${GRAFANA_SA_TOKEN}" \
-    "${GRAFANA_URL}/api/v1/provisioning/contact-points" > "$CP_FILE" 2>/dev/null || echo '[]' > "$CP_FILE"
+    -u "${GF_ADMIN_USER:-admin}:${GF_ADMIN_PASSWORD}" \
+    "${ALERT_API_URL}/api/recipients" > "$RECIPIENTS_FILE" 2>/dev/null || echo '[]' > "$RECIPIENTS_FILE"
 
   MISSING=$(jq -rn \
     --slurpfile policy "$POLICY_FILE" \
-    --slurpfile cp "$CP_FILE" \
+    --slurpfile recipients "$RECIPIENTS_FILE" \
     '
       ($policy[0].routes // [] | [.[].receiver]) as $receivers |
       ($policy[0].receiver // "")               as $default   |
-      $cp[0][] |
+      $recipients[0][] |
       select(.type == "email") |
       select(.uid != null and .uid != "") |
       select(.name != $default) |
+      select(.auto_subscribe == true) |
       .name |
       select(. as $n | ($receivers | index($n)) == null)
     ' 2>/dev/null || true)
 
-  rm -f "$POLICY_FILE" "$CP_FILE"
+  rm -f "$POLICY_FILE" "$RECIPIENTS_FILE"
 
+  ROUTING_OK=true
   if [[ -z "$MISSING" ]]; then
     ok "All email recipients have routes in the notification policy."
   else
@@ -431,7 +377,8 @@ else
       [[ -z "$name" ]] && continue
       warn "  Missing route for recipient: ${name}"
     done <<<"$MISSING"
-    die "One or more recipients are not routed — they will NOT receive alert emails."
+    warn "One or more recipients are not routed — they will NOT receive alert emails."
+    ROUTING_OK=false
   fi
 fi
 
@@ -502,3 +449,9 @@ case "$e2e_exit" in
     warn "E2E test exited with unexpected code $e2e_exit."
     ;;
 esac
+
+# If routing verification found missing routes, exit with failure now that E2E
+# test has had a chance to run.
+if [[ "${ROUTING_OK:-true}" == "false" ]]; then
+  die "One or more recipients are not routed — they will NOT receive alert emails."
+fi

@@ -127,6 +127,9 @@ class _Client:
     def put(self, path: str, payload: object = None, extra: dict | None = None) -> object:
         return self._req("PUT", path, payload, extra)
 
+    def patch(self, path: str, payload: object = None, extra: dict | None = None) -> object:
+        return self._req("PATCH", path, payload, extra)
+
     def delete(self, path: str) -> object:
         return self._req("DELETE", path)
 
@@ -446,7 +449,15 @@ def _ensure_recipient(api: _Client, gf: _Client, email_addr: str) -> str:
                 ]
                 if email_addr.lower() in addrs:
                     uid = cp.get("uid", "")
-                    _log(f"Recipient {email_addr!r} already exists as contact point '{cp.get('name')}' (uid={uid})")
+                    _log(
+                        f"Recipient {email_addr!r} already exists as contact point '{cp.get('name')}' (uid={uid})"
+                    )
+                    # Ensure auto_subscribe is enabled for E2E tests
+                    try:
+                        api.patch(f"/recipients/{uid}/auto-subscribe", {"auto_subscribe": True})
+                        _log(f"Ensured auto_subscribe=true for recipient uid={uid}")
+                    except Exception as exc:
+                        _warn(f"Could not set auto_subscribe for uid={uid}: {exc}")
                     return uid
     except Exception as exc:
         _warn(f"Could not check existing contact points: {exc} — will try to create")
@@ -457,6 +468,12 @@ def _ensure_recipient(api: _Client, gf: _Client, email_addr: str) -> str:
     if not uid:
         raise RuntimeError(f"Recipient created but no uid in response: {result}")
     _log(f"Recipient created (uid={uid})")
+    # Newly-created recipients default to auto_subscribe=true, but be explicit
+    try:
+        api.patch(f"/recipients/{uid}/auto-subscribe", {"auto_subscribe": True})
+        _log(f"Set auto_subscribe=true for new recipient uid={uid}")
+    except Exception as exc:
+        _warn(f"Could not set auto_subscribe for new uid={uid}: {exc}")
     return str(uid)
 
 
