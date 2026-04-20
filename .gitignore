@@ -14,6 +14,7 @@ alertmanager-data/
 
 # Generated configs from *.template files (created by install.sh).
 config/alertmanager/alertmanager.runtime.yml
+config/grafana/provisioning/alerting/rules/dodo-staleness.yml
 
 # OS/editor noise
 .DS_Store

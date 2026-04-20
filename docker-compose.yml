@@ -108,6 +108,8 @@ services:
   alert-api:
     build: ./alert-api
     container_name: fridge-alert-api
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
     environment:
       - GRAFANA_URL=http://grafana:3000
       - GRAFANA_SA_TOKEN=${GRAFANA_SA_TOKEN}
@@ -133,6 +135,8 @@ services:
   caddy:
     build: ./config/caddy   # custom image with DuckDNS DNS-01 plugin
     container_name: fridge-caddy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
     ports:
       - "8443:8443"
     volumes:

@@ -117,6 +117,16 @@ envsubst < config/alertmanager/alertmanager.yml.template \
          > config/alertmanager/alertmanager.runtime.yml
 ok "config/alertmanager/alertmanager.runtime.yml generated (untracked)."
 
+# ── Dodo staleness alert rule ─────────────────────────────────────────────────
+# Threshold is per-fridge because Dodo's log files update every ~15 min.
+# envsubst is restricted to only DODO_STALENESS_THRESHOLD_MIN so that Grafana's
+# own $$ template escaping in annotations is left untouched.
+export DODO_STALENESS_THRESHOLD_MIN="${DODO_STALENESS_THRESHOLD_MIN:-20}"
+envsubst '${DODO_STALENESS_THRESHOLD_MIN}' \
+  < config/grafana/provisioning/alerting/rules/dodo-staleness.yml.template \
+  > config/grafana/provisioning/alerting/rules/dodo-staleness.yml
+ok "config/grafana/provisioning/alerting/rules/dodo-staleness.yml generated (threshold: ${DODO_STALENESS_THRESHOLD_MIN} min, untracked)."
+
 # DuckDNS is configured entirely via env vars in docker-compose.yml — no file generation needed.
 
 # =============================================================================
