@@ -18,12 +18,16 @@ import os
 import re
 import yaml
 from contextlib import asynccontextmanager
+import time
+import hmac
+import hashlib
+import urllib.parse
 
 logger = logging.getLogger("alert-api")
 from typing import Annotated, Optional
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from grafana_client import GrafanaClient
@@ -70,6 +74,14 @@ async def lifespan(app: FastAPI):
         receiver_email=GRAFANA_RECEIVER_EMAIL,
         receiver_slack=GRAFANA_RECEIVER_SLACK,
     )
+    # Warn when Slack signing secret is not configured — required to accept
+    # incoming Slack slash commands (/alerts). This is intentionally a warning
+    # so the service still starts even if Slack integration isn't configured.
+    if not os.environ.get("SLACK_SIGNING_SECRET"):
+        logger.warning(
+            "SLACK_SIGNING_SECRET not set; /alerts slash command will be rejected."
+            " Set SLACK_SIGNING_SECRET in your .env to enable Slack commands."
+        )
     yield
 
 
@@ -707,3 +719,120 @@ async def check_all_recipients(authorization: Annotated[Optional[str], Header()]
             detail=f"Grafana check error {exc.response.status_code}: {exc.response.text}",
         )
     return result
+
+
+# ------------------------- Slack slash command ----------------------------
+SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
+
+
+async def _gather_alert_items_for_slack() -> list[AlertListItem]:
+    """Gather AlertListItem objects with current values for Slack messages."""
+    raw_rules = []
+    try:
+        raw_rules = await _grafana.list_alert_rules()
+    except Exception:
+        raw_rules = []
+
+    try:
+        disabled = await _grafana.list_disabled_rules()
+        active_uids = {r.get("uid") for r in raw_rules}
+        for rule in disabled:
+            if rule.get("uid") not in active_uids:
+                rule["isPaused"] = True
+                rule["_state"] = "unknown"
+                raw_rules.append(rule)
+    except Exception:
+        pass
+
+    items: list[AlertListItem] = []
+    for r in raw_rules:
+        try:
+            items.append(AlertListItem(**GrafanaClient.parse_rule(r)))
+        except Exception:
+            continue
+
+    values = await asyncio.gather(*[_fetch_prometheus_value(i.metric, i.fridge) for i in items])
+    for item, val in zip(items, values):
+        item.current_value = val
+
+    try:
+        auto_settings = await _grafana.get_auto_subscribe_settings()
+        raw_cps = await _grafana.list_contact_points()
+        auto_count = sum(
+            1 for cp in raw_cps
+            if cp.get("type") == "email" and auto_settings.get(cp.get("uid", ""), True)
+        )
+    except Exception:
+        auto_count = 0
+
+    for item in items:
+        item.recipient_count = len(item.notify_to) if item.notify_to else auto_count
+
+    return items
+
+
+async def _post_alerts_to_response_url(response_url: str, items: list[AlertListItem]):
+    blocks = []
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*All Alerts*"}})
+    blocks.append({"type": "divider"})
+    MAX = 40
+    for a in items[:MAX]:
+        status = "Disabled" if not a.enabled else (a.state.capitalize() if a.state else "Unknown")
+        cond = f"{a.operator or ''} {a.threshold or ''}".strip()
+        value = a.current_value if (a.current_value is not None) else "—"
+        line = f"*{a.title or 'Untitled'}* — `{status}` — {a.fridge or '—'} — `{a.metric or '—'}` — *{value}* — `{cond or '—'}` — Recipients: {a.recipient_count or 0}"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": line}})
+        blocks.append({"type": "divider"})
+    if len(items) > MAX:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"Showing first {MAX} of {len(items)} alerts."}})
+
+    payload = {"response_type": "ephemeral", "blocks": blocks}
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(response_url, json=payload, timeout=10.0)
+    except Exception:
+        pass
+
+
+@app.post("/api/slack/commands")
+async def slack_commands(request: Request, background_tasks: BackgroundTasks):
+    """Handle Slack slash commands and post the alerts table to Slack via response_url."""
+    raw_body = await request.body()
+    timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    signature = request.headers.get("X-Slack-Signature", "")
+
+    try:
+        if not timestamp or abs(time.time() - int(timestamp)) > 60 * 5:
+            raise HTTPException(status_code=401, detail="Stale or missing timestamp")
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid timestamp")
+
+    if not SLACK_SIGNING_SECRET:
+        raise HTTPException(status_code=500, detail="Slack signing secret not configured")
+
+    basestring = f"v0:{timestamp}:{raw_body.decode('utf-8')}"
+    my_sig = "v0=" + hmac.new(SLACK_SIGNING_SECRET.encode(), basestring.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(my_sig, signature or ""):
+        raise HTTPException(status_code=403, detail="Invalid Slack signature")
+
+    qs = urllib.parse.parse_qs(raw_body.decode('utf-8'))
+    command = qs.get("command", [""])[0]
+    response_url = qs.get("response_url", [""])[0]
+
+    if command != "/alerts":
+        return JSONResponse({"response_type": "ephemeral", "text": "Unknown command"})
+
+    background_tasks.add_task(_gather_and_post_slack_alerts_task, response_url)
+    return JSONResponse({"response_type": "ephemeral", "text": "Fetching alerts…"})
+
+
+async def _gather_and_post_slack_alerts_task(response_url: str):
+    try:
+        items = await _gather_alert_items_for_slack()
+        await _post_alerts_to_response_url(response_url, items)
+    except Exception:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(response_url, json={"response_type": "ephemeral", "text": "Failed to fetch alerts."}, timeout=10.0)
+        except Exception:
+            pass
