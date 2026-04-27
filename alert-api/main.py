@@ -772,19 +772,78 @@ async def _gather_alert_items_for_slack() -> list[AlertListItem]:
 
 
 async def _post_alerts_to_response_url(response_url: str, items: list[AlertListItem]):
-    blocks = []
-    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*All Alerts*"}})
-    blocks.append({"type": "divider"})
+    # Build a Block Kit table (see https://docs.slack.dev/reference/block-kit/blocks/table-block/)
     MAX = 40
+
+    def _fmt_value(val, metric_name):
+        if val is None:
+            return "—"
+        try:
+            v = float(val)
+        except Exception:
+            return str(val)
+        mc = _metric_config_for(metric_name)
+        unit = mc.get("unit", "") if mc else ""
+        abs_v = abs(v)
+        if 0 < abs_v < 0.01:
+            formatted = f"{v:.2e}"
+        else:
+            formatted = f"{v:.4g}"
+        return f"{formatted} {unit}".strip()
+
+    # Header row — match alert-ui columns (excluding Delete button)
+    header = [
+        {"type": "raw_text", "text": "Name"},
+        {"type": "raw_text", "text": "Status"},
+        {"type": "raw_text", "text": "Fridge"},
+        {"type": "raw_text", "text": "Metric"},
+        {"type": "raw_text", "text": "Current Value"},
+        {"type": "raw_text", "text": "Condition"},
+        {"type": "raw_text", "text": "Recipients"},
+        {"type": "raw_text", "text": "On/Off"},
+    ]
+
+    rows = [header]
     for a in items[:MAX]:
         status = "Disabled" if not a.enabled else (a.state.capitalize() if a.state else "Unknown")
-        cond = f"{a.operator or ''} {a.threshold or ''}".strip()
-        value = a.current_value if (a.current_value is not None) else "—"
-        line = f"*{a.title or 'Untitled'}* — `{status}` — {a.fridge or '—'} — `{a.metric or '—'}` — *{value}* — `{cond or '—'}` — Recipients: {a.recipient_count or 0}"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": line}})
-        blocks.append({"type": "divider"})
+        cond = f"{a.operator or ''} {a.threshold or ''}".strip() or "—"
+        value = _fmt_value(a.current_value, a.metric)
+        rows.append([
+            {"type": "raw_text", "text": a.title or "Untitled"},
+            {"type": "raw_text", "text": status},
+            {"type": "raw_text", "text": a.fridge or "—"},
+            {"type": "raw_text", "text": a.metric or "—"},
+            {"type": "raw_text", "text": value},
+            {"type": "raw_text", "text": cond},
+            {"type": "raw_text", "text": str(a.recipient_count or 0)},
+            {"type": "raw_text", "text": ("Enabled" if a.enabled else "Disabled")},
+        ])
+
     if len(items) > MAX:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"Showing first {MAX} of {len(items)} alerts."}})
+        rows.append([
+            {"type": "raw_text", "text": f"Showing first {MAX} of {len(items)} alerts."},
+        ] + [{"type": "raw_text", "text": ""}] * 7)
+
+    table_block = {
+        "type": "table",
+        "column_settings": [
+            {"is_wrapped": True},
+            {"align": "center"},
+            {"align": "left"},
+            {"align": "left"},
+            {"align": "right"},
+            {"align": "left"},
+            {"align": "right"},
+            {"align": "center"},
+        ],
+        "rows": rows,
+    }
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*All Alerts*"}},
+        {"type": "divider"},
+        table_block,
+    ]
 
     payload = {"response_type": "ephemeral", "blocks": blocks}
     try:
