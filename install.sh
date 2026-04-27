@@ -117,16 +117,6 @@ envsubst < config/alertmanager/alertmanager.yml.template \
          > config/alertmanager/alertmanager.runtime.yml
 ok "config/alertmanager/alertmanager.runtime.yml generated (untracked)."
 
-# ── Dodo staleness alert rule ─────────────────────────────────────────────────
-# Threshold is per-fridge because Dodo's log files update every ~15 min.
-# envsubst is restricted to only DODO_STALENESS_THRESHOLD_MIN so that Grafana's
-# own $$ template escaping in annotations is left untouched.
-export DODO_STALENESS_THRESHOLD_MIN="${DODO_STALENESS_THRESHOLD_MIN:-20}"
-envsubst '${DODO_STALENESS_THRESHOLD_MIN}' \
-  < config/grafana/provisioning/alerting/rules/dodo-staleness.yml.template \
-  > config/grafana/provisioning/alerting/rules/dodo-staleness.yml
-ok "config/grafana/provisioning/alerting/rules/dodo-staleness.yml generated (threshold: ${DODO_STALENESS_THRESHOLD_MIN} min, untracked)."
-
 # DuckDNS is configured entirely via env vars in docker-compose.yml — no file generation needed.
 
 # =============================================================================
@@ -271,7 +261,14 @@ fi
 # 8b. Alert UI setup (SA, policy, alert-api, E2E test)
 # =============================================================================
 step "Alert UI setup"
-bash "${SCRIPT_DIR}/install_alert_ui.sh"
+# Run the Alert UI setup but skip the intrusive E2E test by default.
+# To run the E2E test during install set RUN_E2E=true in .env or run
+# this script with RUN_E2E=true ./install.sh
+if [[ "${RUN_E2E:-false}" == "true" ]]; then
+  bash "${SCRIPT_DIR}/install_alert_ui.sh"
+else
+  bash "${SCRIPT_DIR}/install_alert_ui.sh" --skip-e2e
+fi
 
 # =============================================================================
 # 9. Summary

@@ -1,0 +1,35 @@
+Block Kit — blocks, elements, modals (practical summary)
+
+Purpose
+- Block Kit is the JSON-driven UI language for messages, modals, and App Home. Prototype in the Block Kit Builder and paste JSON directly into your app.
+
+Key block types (common)
+- `section`, `divider`, `image`, `context`, `actions`, `input`, `header` — compose surfaces by stacking blocks in order.
+
+Interactive elements
+- `button` (has `action_id`, optional `value`) — quick actions.
+- Selects: `static_select`, `external_select`, `users_select`, `conversations_select`, `channels_select`.
+- Inputs: `plain_text_input`, `datepicker`, `timepicker`, `checkboxes`, `radio_buttons`, `overflow`.
+
+IDs & retrieving input values
+- `block_id` groups inputs inside a view; each element has an `action_id`.
+- On `view_submission`, input values are at `payload['view']['state']['values'][block_id][action_id]` — value schema differs by element (`value` for text inputs, selected_option for selects).
+
+Example block (section + button)
+{
+	"blocks": [
+		{"type": "section", "text": {"type": "mrkdwn", "text": "A sample"}, "accessory": {"type": "button", "text": {"type": "plain_text", "text": "Click"}, "action_id": "btn_1", "value": "v1"}}
+	]
+}
+
+Modal flow and validation
+- Use `views.open` with `trigger_id` to show a modal. In `view_submission` handlers, validate inputs server-side and return an errors object keyed by `block_id` to surface field-specific errors to users.
+
+Accessibility notes
+- Screen readers read the top-level `text` field first. If your message must be accessible, include essential content in the top-level `text` or ensure blocks provide the same information.
+
+Limits and practical tips
+- Messages: roughly up to 50 blocks; modals/Home: larger limits (check docs). Keep blocks compact and prefer `fields` in `section` for tabular content.
+
+Reference
+- Block Kit docs & Block Kit Builder: https://docs.slack.dev/block-kit and https://app.slack.com/block-kit-builder/

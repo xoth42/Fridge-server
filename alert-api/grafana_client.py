@@ -673,19 +673,24 @@ class GrafanaClient:
         threshold: float,
         for_duration: str,
         folder_uid: str,
+        expr: str | None = None,
     ) -> dict:
         """Construct the Grafana alert rule JSON body from simplified inputs.
 
         The metric name is validated by the caller against the allowlist before
         this method is called, so it is safe to interpolate into PromQL here.
+
+        Pass expr to override the default `metric{instance="fridge"}` PromQL with a
+        custom expression (e.g. for computed metrics like seconds_since_last_push).
         """
+        resolved_expr = expr if expr is not None else f'{metric}{{instance="{fridge}"}}'
         data = [
             {
                 "refId": "A",
                 "relativeTimeRange": {"from": 300, "to": 0},
                 "datasourceUid": PROMETHEUS_DS_UID,
                 "model": {
-                    "expr": f'{metric}{{instance="{fridge}"}}',
+                    "expr": resolved_expr,
                     "intervalMs": 1000,
                     "maxDataPoints": 43200,
                     "refId": "A",
@@ -739,6 +744,7 @@ class GrafanaClient:
             "labels": {
                 "severity": BASIC_SEVERITY,
                 "fridge": fridge,
+                "metric": metric,
                 "managed_by": "alert-api",
                 "rulename": title,
             },
@@ -755,7 +761,13 @@ class GrafanaClient:
     @staticmethod
     def parse_rule(rule: dict) -> dict:
         """Extract the simplified fields we expose from a raw Grafana rule dict."""
-        # Parse metric from refId A expression
+        # Parse metric from refId A expression.
+        # NOTE: this assumes the expr is a simple `metric_name{labels}` form, as
+        # produced by build_rule_payload. File-provisioned staleness rules use a
+        # compound expression like `(time() - last_push_timestamp_seconds{...}) / 60`,
+        # so split("{")[0] yields a garbled string starting with "(". The alert still
+        # appears in the UI; it just shows a garbled metric column. Similarly, those
+        # rules carry no `fridge` label, so fridge is returned as "". Non-fatal.
         metric = ""
         operator = ""
         threshold = 0.0
@@ -781,6 +793,10 @@ class GrafanaClient:
         labels = rule.get("labels", {})
         raw_notify = labels.get("notify_to", "")
         notify_to = [u.strip() for u in raw_notify.split(",") if u.strip()]
+        # Prefer the metric label stored at creation time over the expr-derived value.
+        # For rules using a custom expr (e.g. seconds_since_last_push) the expr split
+        # produces a garbled string; the label always has the clean metric name.
+        metric = labels.get("metric") or metric
         return {
             "uid": rule.get("uid", ""),
             "title": rule.get("title", ""),

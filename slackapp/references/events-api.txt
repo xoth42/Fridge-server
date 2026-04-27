@@ -1,0 +1,35 @@
+Events API — subscription, handshake, and stable handling
+
+Subscribe & handshake
+- Enable "Event Subscriptions" in your app configuration and add the HTTP Request URL (HTTPS). Slack will issue a `url_verification` request: reply with the `challenge` value (raw JSON) to prove ownership.
+
+`url_verification` example (incoming JSON)
+  {"token":"...","challenge":"xxxx","type":"url_verification"}
+Respond with the `challenge` value (plain JSON) to complete verification.
+
+Typical `event_callback` shape (simplified)
+  {
+    "token": "...",
+    "team_id": "T...",
+    "api_app_id": "A...",
+    "event": {"type": "app_mention", "user": "U...", "text": "hi"},
+    "type": "event_callback",
+    "event_id": "Ev...",
+    "event_time": 1234567890
+  }
+
+Operational guidance
+- Respond with HTTP 2xx quickly. If you need heavy processing, enqueue and return 200; Slack retries on non-2xx responses and will disable subscriptions after repeated failures.
+- Subscribe to only the event types you need (filter at source) to reduce noise and rate-limit exposure.
+
+Choosing Socket Mode vs Events API
+- Use Events API (HTTP push) if you can host public HTTPS endpoints and prefer inbound requests.
+- Use Socket Mode if you cannot host public endpoints or prefer an outbound WebSocket connection (requires `SLACK_APP_TOKEN`).
+
+Bolt example (app_mention)
+  @app.event('app_mention')
+  def handle_mention(say, event):
+      say(f"Thanks <@{event['user']}> — got: {event.get('text','')}")
+
+Primary reference
+- Events API docs: https://docs.slack.dev/apis/connections/events-api

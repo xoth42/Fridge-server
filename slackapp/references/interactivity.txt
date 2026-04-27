@@ -1,0 +1,34 @@
+Interactivity — what you receive and how to react (practical)
+
+Enable interactivity
+- In your Slack app configuration enable "Interactivity & Shortcuts" and set a Request URL, or use Socket Mode to avoid hosting a public HTTPS endpoint.
+
+Common payload types
+- `block_actions` — user clicked a block element (buttons, selects); payload contains `actions` array with each action's `action_id`, `block_id`, and optional `value`.
+- `view_submission` — modal submitted; contains `view.state.values` with user inputs.
+- `shortcut` / `message_action` — user invoked a shortcut; includes `trigger_id`.
+
+Example `block_actions` simplified shape
+{
+	"type": "block_actions",
+	"user": {...},
+	"team": {...},
+	"trigger_id": "...",
+	"actions": [ {"action_id": "btn_1", "block_id": "b1", "value": "v1", "type": "button"} ]
+}
+
+Response patterns
+- ACK within 3s. If you need to update the original message immediately, call `chat.update` or reply to the request with the appropriate JSON response action. Otherwise ack then use `response_url` or `client.chat_postMessage` later.
+- `response_url` is provided for many interactive payloads; POST JSON to it to send or update messages in the same context.
+
+Modal validation
+- To show field-level errors on `view_submission`, return an errors mapping keyed by `block_id`.
+
+Security
+- Verify request signatures (see `api-connection.txt`). Check `team_id`/`user` scope if necessary.
+
+Operational tips
+- Keep handlers thin: ack quickly and push heavy work to background jobs. Track `action_id`/`event_id` for observability.
+
+Primary reference
+- Interactivity docs: https://docs.slack.dev/interactivity/

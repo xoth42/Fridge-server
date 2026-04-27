@@ -1,0 +1,44 @@
+User commands — slash commands, shortcuts, and actionable patterns
+
+Invocation types
+- Slash commands: typed by the user (configured in app settings). Slack POSTs a form-encoded payload to your Request URL.
+- Shortcuts (global / message): appear in the Slack UI and can open modals or send payloads to your app.
+- Block Kit elements (buttons, selects) inside messages or modals: delivered to Interactivity endpoint as `block_actions` or `view_submission`.
+
+Typical slash command payload (application/x-www-form-urlencoded)
+- `team_id`, `team_domain`, `channel_id`, `channel_name`, `user_id`, `user_name`
+- `command` (e.g. `/deploy`), `text` (arguments string), `response_url` (post-back URL), `trigger_id`
+Example (decoded form):
+  token=...&team_id=T123&channel_id=C123&user_id=U123&command=/deploy&text=--branch=main&response_url=https://hooks.slack.com/commands/...
+
+Server handling pattern
+- ALWAYS verify request signature (see `api-connection.txt`).
+- ACK quickly (within 3s). If the action is long-running:
+  1) ack immediately (200). 2) start background work (task queue, thread, job). 3) update the user via `response_url` or `client.chat_postMessage` when done.
+- Control visibility: send `response_type=ephemeral` for user-only responses, `in_channel` to broadcast.
+
+Bolt example with background processing (pattern)
+  from slack_bolt import App
+  import threading, os, requests
+
+  app = App(token=os.environ['SLACK_BOT_TOKEN'], signing_secret=os.environ['SLACK_SIGNING_SECRET'])
+
+  def long_task(response_url, channel):
+      # run long work, then notify via response_url or client
+      requests.post(response_url, json={"text": "Job complete"})
+
+  @app.command('/deploy')
+  def deploy(ack, body, respond):
+      ack()
+      respond({'response_type': 'ephemeral', 'text': 'Deploy queued'})
+      threading.Thread(target=long_task, args=(body['response_url'], body['channel_id'])).start()
+
+Key operational notes
+- `trigger_id` is short-lived and used immediately to open modals (`views.open`).
+- Validate and sanitize `text` before echoing or using it in shell/SQL commands.
+- Rate-limit per-user or per-workspace to prevent abuse.
+
+Security
+- Prefer signature verification over legacy `token` checks.
+- Scope commands to specific workspaces or check `team_id` if your app is installed in multiple workspaces.
+

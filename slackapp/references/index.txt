@@ -1,0 +1,19 @@
+Slack App Reference Notes (updated 2026-04-27)
+
+Purpose: dense, actionable implementation notes and links for building a Slack app.
+Sources: official Slack docs (docs.slack.dev / api.slack.com), Python SDK, Bolt examples, and practical tutorials.
+
+Read order (recommended):
+1. references.txt         — canonical links used to compile these notes
+2. api-connection.txt     — tokens, signing, Socket Mode vs HTTP
+3. oauth.txt              — OAuth v2 install flow and token handling
+4. events-api.txt         — events subscription, handshake, payloads
+5. interactivity.txt      — interactive payloads, actions, modals
+6. block-kit.txt          — Block Kit blocks/elements and examples
+7. user-commands.txt      — slash commands, shortcuts, response_url
+8. python-sdk.txt         — slack-sdk + bolt usage and snippets
+9. rate-limits.txt        — 429 handling and retry guidance
+10. testing.txt           — local dev, ngrok vs Socket Mode, unit tests
+11. deployment.txt        — Docker, env vars, secrets, production notes
+
+If you want a runnable minimal example next, say "sample app" and I'll scaffold a Bolt-based Socket Mode example and tests.

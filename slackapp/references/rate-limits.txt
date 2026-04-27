@@ -1,0 +1,30 @@
+Rate limits and retries — practical guidance
+
+How Slack signals limits
+- Slack returns HTTP 429 when a method is rate-limited. The response includes a `Retry-After` header (seconds) — always respect that value.
+
+Handling in Python (example)
+  from slack_sdk.errors import SlackApiError
+  try:
+	  client.chat_postMessage(...)
+  except SlackApiError as e:
+	  status = getattr(e.response, 'status_code', None)
+	  if status == 429:
+		  retry_after = int(e.response.headers.get('Retry-After', '1'))
+		  time.sleep(retry_after)
+		  # retry once (or use backoff)
+
+Backoff strategy
+- Respect `Retry-After` on 429.
+- For other transient errors, use exponential backoff with jitter (eg 0.5s → 1s → 2s, max 30s).
+- Keep retry attempts bounded and surface failures to users if retries exhausted.
+
+Architectural practices
+- Queue and batch outgoing API calls where possible to smooth spikes.
+- Cache workspace metadata (channel lists) rather than polling frequently — use Events API to keep caches fresh.
+
+Monitoring
+- Track 429 count, Retry-After durations, and per-method failure rates.
+
+Primary reference
+- Rate limits: https://docs.slack.dev/apis/web-api/rate-limits

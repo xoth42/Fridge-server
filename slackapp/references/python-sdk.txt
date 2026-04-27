@@ -1,0 +1,48 @@
+Python SDK + Bolt — concrete usage patterns and snippets
+
+Installation
+- Recommended packages: `slack-sdk` (WebClient) and `slack-bolt` (app framework).
+- Install: pip install slack-sdk slack-bolt
+
+Basic WebClient usage (sync)
+  from slack_sdk import WebClient
+  from slack_sdk.errors import SlackApiError
+  client = WebClient(token=os.environ['SLACK_BOT_TOKEN'])
+  try:
+      resp = client.chat_postMessage(channel='#general', text='Hello')
+  except SlackApiError as e:
+      # e.response contains API error details and headers (Retry-After)
+      print('Slack error', e.response.get('error'))
+
+Async usage
+  from slack_sdk.web.async_client import AsyncWebClient
+  client = AsyncWebClient(token=os.environ['SLACK_BOT_TOKEN'])
+  await client.chat_postMessage(channel='#general', text='Hello async')
+
+Bolt for Python (recommended framework)
+  from slack_bolt import App
+  import os
+
+  app = App(token=os.environ['SLACK_BOT_TOKEN'], signing_secret=os.environ['SLACK_SIGNING_SECRET'])
+
+  @app.command('/hello')
+  def hello(ack, respond):
+      ack()
+      respond('Hello from Bolt!')
+
+  if __name__ == '__main__':
+      # web mode
+      app.start(port=int(os.environ.get('PORT', 3000)))
+
+Socket Mode (no public HTTPS required)
+  from slack_bolt.adapter.socket_mode import SocketModeHandler
+  handler = SocketModeHandler(app, os.environ['SLACK_APP_TOKEN'])
+  handler.start()
+
+Testing & migration notes
+- Use `unittest.mock.patch` to mock `WebClient` methods in unit tests.
+- If migrating from older slackclient versions, consult the v3 migration guide in the SDK docs.
+
+Docs and examples
+- Slack Bolt for Python: https://slack.dev/bolt-python/
+- Python Slack SDK (reference + models): https://docs.slack.dev/tools/python-slack-sdk/

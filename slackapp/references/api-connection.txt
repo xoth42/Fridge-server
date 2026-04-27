@@ -1,0 +1,52 @@
+API connection — dense, sourced summary
+
+Quick overview
+- Slack surfaces: Web API (synchronous method calls), Events API (HTTP push of events), Interactivity (buttons/modals/shortcuts), Socket Mode (WebSocket delivery of Events & Interactivity).
+
+Critical env variables / tokens
+- `SLACK_BOT_TOKEN` (xoxb-...): bot token; used by `WebClient`/Bolt to call methods.
+- `SLACK_SIGNING_SECRET`: verify incoming requests from Slack.
+- `SLACK_APP_TOKEN` (xapp-...): app-level token required for Socket Mode.
+- `PORT`: service port (web mode).
+
+Verifying incoming requests (must do this)
+- Slack adds headers: `X-Slack-Request-Timestamp` and `X-Slack-Signature` (format: `v0=<hex>`).
+- Reject replay attacks: if |now - timestamp| > 5 minutes, discard.
+- Manual verification (Python, canonical):
+  import os, time, hmac, hashlib
+  timestamp = request.headers.get('X-Slack-Request-Timestamp')
+  if abs(time.time() - int(timestamp)) > 60 * 5:
+      abort(401)
+  sig_basestring = f"v0:{timestamp}:{request.get_data(as_text=True)}"
+  my_sig = 'v0=' + hmac.new(os.environ['SLACK_SIGNING_SECRET'].encode(), sig_basestring.encode(), hashlib.sha256).hexdigest()
+  if not hmac.compare_digest(my_sig, request.headers.get('X-Slack-Signature', '')):
+      abort(403)
+
+- Helper (slack_sdk):
+  from slack_sdk.signature import SignatureVerifier
+  verifier = SignatureVerifier(os.environ['SLACK_SIGNING_SECRET'])
+  if not verifier.is_valid_request(request.get_data(), request.headers):
+      abort(403)
+
+Socket Mode vs HTTP endpoints (tradeoffs)
+- Socket Mode: use when you cannot host a public HTTPS endpoint or prefer outbound WebSocket. Requires `SLACK_APP_TOKEN` (xapp-...). Bolt provides `SocketModeHandler`.
+- HTTP mode (Events API + Interactivity): use when you have secure HTTPS endpoints and prefer inbound REST-style delivery. Needs public TLS; use ngrok for local dev.
+
+Web API usage (posting messages, updating views)
+- Use `slack_sdk.WebClient(token=...)` or Bolt's `client` wrapper. Handle `SlackApiError` to inspect `e.response` and `e.response.headers` for `Retry-After` on 429s.
+
+Ack & timing rules (operational)
+- For slash commands, block_actions, and view_submissions: ack within 3 seconds. If you need more time: ack immediately, then do the long work asynchronously and use `response_url` or `client.chat_postMessage` to update.
+- For Events API: respond to `url_verification` by returning the `challenge` value; otherwise return 2xx quickly and enqueue work.
+
+Common pitfalls
+- Not verifying signatures or failing to check timestamp (replay attack risk).
+- Confusing user tokens vs bot tokens (use proper token and scopes).
+- Forgetting to enable Event Subscriptions or Interactivity in the app config.
+
+Primary references
+- Interactivity: https://docs.slack.dev/interactivity/
+- Verifying requests: https://docs.slack.dev/authentication/verifying-requests-from-slack
+- Socket Mode guide: https://docs.slack.dev/apis/connections/events-api/using-socket-mode
+- Slack Python SDK (PyPI + docs): https://pypi.org/project/slack-sdk/ and https://docs.slack.dev/tools/python-slack-sdk/
+

@@ -1,0 +1,32 @@
+Testing & local development — concrete patterns and snippets
+
+Local development
+- ngrok (or similar) to expose localhost over HTTPS for Events/Interactivity during development.
+- Prefer Socket Mode for local dev to avoid maintaining tunnels: Bolt's `SocketModeHandler` connects outbound to Slack.
+
+Unit testing patterns
+- Keep business logic separate from Slack I/O so you can unit test formatting/validation independently.
+- Mock `WebClient` methods using `unittest.mock.patch` or pytest `monkeypatch`.
+
+Example pytest + unittest.mock for `chat_postMessage`:
+	from unittest.mock import patch
+	from myapp import send_message
+
+	@patch('slack_sdk.WebClient.chat_postMessage')
+	def test_send_message(mock_post):
+			mock_post.return_value = {'ok': True, 'message': {'text': 'hello'}}
+			send_message('#test', 'hello')
+			mock_post.assert_called_once()
+
+Integration / end-to-end
+- Use a dedicated Slack test workspace and a test app install.
+- For E2E tests, trigger slash commands via HTTP POSTs or use the Slack CLI / Bolt test helpers and assert posted messages in the test workspace.
+
+Block Kit tests
+- Use Block Kit Builder to iterate JSON; include fixtures of block JSON in your tests and assert serialization/validation logic.
+
+CI tips
+- Keep real installs to a minimum in CI; prefer mocking for fast runs. Run one integration job against a sandbox workspace for end-to-end smoke tests.
+
+Primary points
+- Prefer Socket Mode for quick iterative dev. Mock heavy external calls in unit tests; run integration tests in a dedicated workspace.

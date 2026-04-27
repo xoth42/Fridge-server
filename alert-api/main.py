@@ -13,10 +13,13 @@ This means:
 
 import base64
 import asyncio
+import logging
 import os
 import re
 import yaml
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger("alert-api")
 from typing import Annotated, Optional
 
 import httpx
@@ -221,7 +224,20 @@ async def get_policy() -> dict:
 async def _fetch_prometheus_value(metric: str, fridge: str) -> Optional[float]:
     try:
         async with httpx.AsyncClient(base_url=PROMETHEUS_URL, timeout=5.0) as client:
-            # First try the exact selector used in alert expressions.
+            # If the metric has a custom PromQL expression in metrics.yml, resolve
+            # it with the fridge ID and query Prometheus with that expression first.
+            mc = _metric_config_for(metric)
+            if mc and mc.get("expr"):
+                resolved = mc["expr"].replace("FRIDGE_ID", fridge)
+                resp = await client.get("/api/v1/query", params={"query": resolved})
+                if resp.status_code == 200:
+                    results = resp.json().get("data", {}).get("result", [])
+                    if results:
+                        return float(results[0]["value"][1])
+                # Custom expr metrics don't exist as plain series — skip fallbacks.
+                return None
+
+            # Next try the exact selector used in simple alert expressions.
             exact_query = f'{metric}{{instance="{fridge}"}}'
             resp = await client.get("/api/v1/query", params={"query": exact_query})
             if resp.status_code == 200:
@@ -229,7 +245,7 @@ async def _fetch_prometheus_value(metric: str, fridge: str) -> Optional[float]:
                 if results:
                     return float(results[0]["value"][1])
 
-            # Fallback: query by metric and choose a series tied to this fridge.
+            # Fallback: query by metric name and choose a series tied to this fridge.
             resp = await client.get("/api/v1/query", params={"query": metric})
             if resp.status_code == 200:
                 results = resp.json().get("data", {}).get("result", [])
@@ -262,7 +278,39 @@ async def list_alerts() -> list[AlertListItem]:
     except Exception:
         pass  # don't break the list if annotation store is unavailable
 
-    items = [AlertListItem(**GrafanaClient.parse_rule(r)) for r in raw_rules]
+    # ── Diagnostic logging ────────────────────────────────────────────────────
+    # Investigation: staleness alerts provisioned in YAML were not appearing in
+    # the UI even after reinstall. Root cause unknown at time of writing.
+    # Findings so far:
+    #   1. parse_rule extracts metric via expr.split("{")[0]. For staleness rules
+    #      the expr is a compound PromQL like "(time() - last_push_timestamp_seconds{...}) / 60",
+    #      so metric becomes the garbled string "(time() - last_push_timestamp_seconds".
+    #      This is stored as-is; no crash, but the Metric column shows garbage.
+    #   2. staleness-all-fridges carries no `fridge` label, so fridge="".
+    #      Both issues are cosmetic — they should not prevent the row from appearing.
+    #   3. _fetch_prometheus_value fails silently for garbled metric names,
+    #      leaving current_value=None. Expected.
+    #   4. No filter anywhere in the backend or frontend was found that would
+    #      hide rules with empty fridge or unusual metric strings.
+    # These logs will show exactly what Grafana returns and whether parse fails.
+    logger.info("list_alerts: Grafana returned %d raw rule(s)", len(raw_rules))
+    for r in raw_rules:
+        logger.debug(
+            "list_alerts raw rule: uid=%r title=%r provenance=%r labels=%r",
+            r.get("uid"), r.get("title"), r.get("provenance"), r.get("labels"),
+        )
+
+    items: list[AlertListItem] = []
+    for r in raw_rules:
+        try:
+            items.append(AlertListItem(**GrafanaClient.parse_rule(r)))
+        except Exception:
+            logger.exception(
+                "list_alerts: failed to parse rule uid=%r title=%r — skipped",
+                r.get("uid"), r.get("title"),
+            )
+
+    logger.info("list_alerts: returning %d item(s) after parsing", len(items))
     values = await asyncio.gather(*[_fetch_prometheus_value(i.metric, i.fridge) for i in items])
     for item, val in zip(items, values):
         item.current_value = val
@@ -327,6 +375,12 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
         raise HTTPException(status_code=502, detail=f"Grafana folder error: {exc.response.status_code}")
 
     # ── Build and POST the rule ───────────────────────────────────────────────
+    # If the metric config defines a custom PromQL expr template, resolve it now.
+    # FRIDGE_ID is the placeholder; the fridge value is already validated above.
+    expr_override: str | None = None
+    if mc and mc.get("expr"):
+        expr_override = mc["expr"].replace("FRIDGE_ID", req.fridge)
+
     payload = GrafanaClient.build_rule_payload(
         title=req.name,
         fridge=req.fridge,
@@ -337,6 +391,7 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
         threshold=req.threshold,
         for_duration=req.for_duration,
         folder_uid=folder_uid,
+        expr=expr_override,
     )
 
     try:

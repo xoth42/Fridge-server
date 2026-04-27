@@ -1,0 +1,42 @@
+OAuth (v2) — install flow, token exchange, and storage (concrete)
+
+High level flow
+1. Build an install URL: https://slack.com/oauth/v2/authorize?client_id=<CLIENT_ID>&scope=<SCOPES>&redirect_uri=<REDIRECT_URI>
+2. User authorizes; Slack redirects to your `redirect_uri` with `?code=...`.
+3. Exchange `code` for tokens via `https://slack.com/api/oauth.v2.access` (server-side POST).
+
+Token exchange (HTTP form-encoded)
+POST https://slack.com/api/oauth.v2.access
+Content-Type: application/x-www-form-urlencoded
+body: client_id=...&client_secret=...&code=...&redirect_uri=...
+
+Typical successful response (JSON)
+{
+  "ok": true,
+  "access_token": "xoxb-...",
+  "token_type": "bot",
+  "scope": "chat:write,commands",
+  "bot_user_id": "B012...",
+  "app_id": "A012...",
+  "team": {"id":"T...","name":"Org"},
+  "authed_user": {"id":"U...", "scope":"chat:write:user"}
+}
+
+Notes & gotchas
+- Authorization codes expire quickly (FAQ: exchange within ~10 minutes); do not reuse codes.
+- Scopes are granular: request minimum required scopes; changing scopes requires the workspace to reinstall the app.
+- Distinguish bot tokens (`xoxb-`) vs user tokens (`xoxp-`/authed_user access token in response).
+
+Storage and operational security
+- Persist tokens encrypted (vault/secret manager). Never commit tokens to source control.
+- Provide a revocation/rotation path; `auth.revoke` or `apps.uninstall` can remove tokens.
+
+Python SDK helper (example)
+  from slack_sdk import WebClient
+  client = WebClient()  # no token required to call oauth.v2.access
+  resp = client.oauth_v2_access(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, code=code, redirect_uri=REDIRECT_URI)
+  if resp.get('ok'):
+      store_token(resp['access_token'])
+
+Primary reference
+- OAuth docs: https://docs.slack.dev/authentication/installing-with-oauth

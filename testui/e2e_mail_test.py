@@ -40,6 +40,8 @@ import urllib.request
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 
+from dotenv import load_dotenv
+
 # Must match PROMETHEUS_DS_UID in grafana_client.py and the provisioning datasource UID.
 PROMETHEUS_DS_UID = "P1809F7CD0C75ACF3"
 
@@ -189,8 +191,26 @@ def _get_or_create_folder(gf: _Client, title: str) -> str:
     return str(result["uid"])  # type: ignore[index]
 
 
-def _create_test_rule(gf: _Client, folder_uid: str, rule_title: str) -> str:
-    """POST a Grafana alert rule that fires as soon as the test metric appears."""
+def _create_test_rule(gf: _Client, folder_uid: str, rule_title: str, notify_to_uid: str) -> str:
+    """POST a Grafana alert rule that fires as soon as the test metric appears.
+
+    IMPORTANT — notify_to_uid MUST be in the labels at creation, not patched
+    afterward.  Grafana's unified-alerting evaluation scheduler caches the rule
+    definition when it first loads the rule.  If notify_to is added in a second
+    API call (PUT/PATCH after creation), there is a window — often 20-60s on a
+    loaded system — where the scheduler is still using the original label set
+    (no notify_to).  If the alert fires in that window, the notification policy's
+    catch-all guard ("notify_to !~ '.+'") evaluates against an absent label,
+    which Alertmanager treats as empty string.  Empty string does NOT match .+,
+    so the guard is TRUE and the catch-all fires → Slack and all auto-subscribed
+    recipients receive the test email.
+
+    Apr 27th:
+    Observed in Grafana 11.6.0: rule created at T+0, notify_to patched at T+0
+    (same second), alert fired at T+21s — scheduler still had the pre-patch
+    definition, Slack fired.  Baking notify_to in at creation eliminates the
+    window entirely.
+    """
     payload = {
         "title": rule_title,
         "ruleGroup": TEST_RULE_GROUP,
@@ -242,6 +262,7 @@ def _create_test_rule(gf: _Client, folder_uid: str, rule_title: str) -> str:
             "fridge": TEST_INSTANCE,
             "managed_by": "install-e2e-test",
             "rulename": rule_title,
+            "notify_to": notify_to_uid,
         },
         "annotations": {
             "summary": f"Install E2E test probe: {rule_title}",
@@ -481,6 +502,8 @@ def _ensure_recipient(api: _Client, gf: _Client, email_addr: str) -> str:
 
 
 def main() -> int:
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="E2E email delivery test — validates full Alertmanager routing path",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -490,13 +513,18 @@ def main() -> int:
     parser.add_argument("--pushgateway-url", default=os.getenv("PUSHGATEWAY_URL", "http://localhost:9091"))
     parser.add_argument("-u", "--username", default=os.getenv("GF_ADMIN_USER"))
     parser.add_argument("-p", "--password", default=os.getenv("GF_ADMIN_PASSWORD"))
-    parser.add_argument("--recipient-email", default="alerts.wanglab@gmail.com")
+    parser.add_argument("--recipient-email", default=os.getenv("WATCHTOWER_NOTIFY_EMAIL", "alerts.wanglab@gmail.com"))
     parser.add_argument("--imap-host", default=os.getenv("SENDER_IMAP_HOST", "imap.gmail.com"))
     parser.add_argument("--imap-port", type=int, default=993)
     parser.add_argument(
+        "--imap-email",
+        default=os.getenv("SMTP_FROM", "alerts.wanglab@gmail.com"),
+        help="Email account to log into for inbox verification (defaults to SMTP_FROM)",
+    )
+    parser.add_argument(
         "--imap-password",
         default=os.getenv("GMAIL_APP_PASSWORD") or os.getenv("SENDER_APP_PASSWORD"),
-        help="Gmail app password for --recipient-email inbox",
+        help="App password for --imap-email inbox",
     )
     parser.add_argument("--imap-mailbox", default="INBOX")
     parser.add_argument(
@@ -527,7 +555,9 @@ def main() -> int:
         args.skip_email_check = True
 
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
-    rule_title = f"install-e2e-{ts}"
+    # Prefix with SERVER TEST so recipients who see this notification know
+    # it is an automated server-side installation diagnostic.
+    rule_title = f"[SERVER TEST] install-e2e-{ts}"
     test_start = datetime.datetime.now(datetime.timezone.utc)
 
     gf = _Client(args.grafana_url, args.username, args.password)
@@ -550,11 +580,13 @@ def main() -> int:
     print(f"  Alert-api   : {args.api_url}")
     print(f"  Pushgateway : {args.pushgateway_url}")
     print(f"  Recipient   : {args.recipient_email}")
+    if not args.skip_email_check and args.imap_email.lower() != args.recipient_email.lower():
+        print(f"  +CC verify  : {args.imap_email}  (IMAP check account)")
     print(f"  Rule title  : {rule_title}")
     if args.skip_email_check:
         print("  Inbox check : skipped (no IMAP credentials)")
     else:
-        print(f"  Inbox check : {args.imap_host} (timeout {args.inbox_timeout}s)")
+        print(f"  Inbox check : {args.imap_email} via {args.imap_host} (timeout {args.inbox_timeout}s)")
     print()
 
     rule_uid: str | None = None
@@ -564,7 +596,30 @@ def main() -> int:
         # This also triggers rebuild_notification_policy in the alert-api, which
         # sets the policy with the new contact point in the catch-all routes.
         _log("Step 1/5: Ensuring recipient exists via alert-api...")
-        _ensure_recipient(api, gf, args.recipient_email)
+        # Keep the returned contact UID so we can assign this alert to that
+        # recipient only (avoid catch-all and Slack routes).
+        recipient_uid = _ensure_recipient(api, gf, args.recipient_email)
+
+        # Newly-created or discovered recipients default to auto_subscribe=true
+        # inside _ensure_recipient. For this transient test recipient we want
+        # to avoid adding it to the catch-all list, so explicitly disable
+        # auto_subscribe here (best-effort; non-fatal on error).
+        try:
+            _log("Disabling auto_subscribe for transient test recipient...")
+            api.patch(f"/recipients/{recipient_uid}/auto-subscribe", {"auto_subscribe": False})
+            _log(f"auto_subscribe=false set for uid={recipient_uid}")
+        except Exception as exc:
+            _warn(f"Could not set auto_subscribe=false for uid={recipient_uid}: {exc}")
+
+        # If the IMAP check account differs from the primary recipient, also add
+        # it as a per-alert recipient so the inbox check can actually find the
+        # email.  (The IMAP account has valid credentials; the primary recipient
+        # may not.)  Its auto_subscribe is left unchanged — it's a permanent
+        # system address, not a transient test contact.
+        imap_uid: str | None = None
+        if not args.skip_email_check and args.imap_email.lower() != args.recipient_email.lower():
+            _log(f"Ensuring IMAP check account '{args.imap_email}' is a recipient...")
+            imap_uid = _ensure_recipient(api, gf, args.imap_email)
 
         # ── Step 2: Set fast policy timing ────────────────────────────────────
         # Must happen AFTER step 1 because create_recipient rebuilds the policy
@@ -584,8 +639,25 @@ def main() -> int:
         # for="0s" and use the synthetic instance label without validation constraints.
         _log("Step 4/5: Creating test alert rule in Grafana...")
         folder_uid = _get_or_create_folder(gf, TEST_FOLDER_TITLE)
-        rule_uid = _create_test_rule(gf, folder_uid, rule_title)
-        _log(f"  Rule created: uid={rule_uid}")
+        # Build the notify_to value: primary recipient + IMAP account (if
+        # different) so the inbox check can verify delivery.
+        # notify_to baked in at creation — see _create_test_rule docstring for
+        # why patching it afterward caused Slack to fire in Grafana 11.6.0.
+        notify_to_uids = [recipient_uid]
+        if imap_uid and imap_uid != recipient_uid:
+            notify_to_uids.append(imap_uid)
+        notify_to_str = ",".join(notify_to_uids)
+        rule_uid = _create_test_rule(gf, folder_uid, rule_title, notify_to_str)
+        _log(f"  Rule created: uid={rule_uid} (notify_to={notify_to_str})")
+
+        # Rebuild the notification policy now that the rule with notify_to exists,
+        # so the per-recipient route and catch-all guard are applied immediately.
+        try:
+            _log("Rebuilding notification policy (per-recipient guard)...")
+            api.post("/policy/rebuild", None)
+            _log("  Policy rebuilt.")
+        except Exception as exc:
+            _warn(f"Could not rebuild policy: {exc}")
 
         # Shorten the rule group evaluation interval to 10s.
         # Default is 1 minute; without this the worst-case first-eval delay
@@ -620,7 +692,7 @@ def main() -> int:
             print(f"  To verify manually: python3 testui/check_sender_inbox.py --query {rule_title!r} --since-minutes 5")
             return 0
 
-        _log(f"Waiting for email at {args.recipient_email} (timeout {args.inbox_timeout}s)...")
+        _log(f"Waiting for email in {args.imap_email} inbox (timeout {args.inbox_timeout}s)...")
         _log(f"  Searching for: {rule_title!r}")
 
         delivered = False
@@ -630,7 +702,7 @@ def main() -> int:
                 found = _check_inbox(
                     args.imap_host,
                     args.imap_port,
-                    args.recipient_email,
+                    args.imap_email,
                     args.imap_password,
                     rule_title,
                     since_dt=test_start,
@@ -651,7 +723,7 @@ def main() -> int:
                 time.sleep(10)
 
         if delivered:
-            print(f"\n  [ OK ]  Email for '{rule_title}' delivered to {args.recipient_email}.")
+            print(f"\n  [ OK ]  Email for '{rule_title}' delivered to {args.recipient_email} (verified via {args.imap_email}).")
             return 0
         else:
             _fail(f"Email for '{rule_title}' NOT received at {args.recipient_email} within {args.inbox_timeout}s.")

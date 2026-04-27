@@ -1,0 +1,25 @@
+Curated links and tutorials — canonical sources used to compile notes
+
+Official Slack docs
+- Slack API home (reference & app settings): https://api.slack.com/
+- Interactivity overview & handling: https://docs.slack.dev/interactivity/
+- Block Kit (blocks/elements/views): https://docs.slack.dev/block-kit
+- Events API: https://docs.slack.dev/apis/connections/events-api
+- OAuth / installing with OAuth v2: https://docs.slack.dev/authentication/installing-with-oauth
+- Verifying requests (signature guide): https://docs.slack.dev/authentication/verifying-requests-from-slack
+- Socket Mode (using Events & Interactivity without public HTTPS): https://docs.slack.dev/apis/connections/events-api/using-socket-mode
+- Rate limits & best practices: https://docs.slack.dev/apis/web-api/rate-limits
+
+SDKs & frameworks
+- Python Slack SDK (PyPI + docs): https://pypi.org/project/slack-sdk/ and https://docs.slack.dev/tools/python-slack-sdk/
+- Bolt for Python (framework + examples): https://slack.dev/bolt-python/ and https://github.com/slackapi/bolt-python
+
+Tutorials and extra reading
+- Building Slack Bots with Python (tutorial you provided): https://hemaks.org/posts/building-slack-bots-with-python-a-step-by-step-guide/
+- Block Kit Builder (interactive visual editor): https://app.slack.com/block-kit-builder/
+
+Development tooling
+- ngrok (local HTTPS tunneling): https://ngrok.com/
+
+Notes
+- `docs.slack.dev` is the current docs domain; `api.slack.com` remains a canonical reference surface. Use the SDK docs for Python-specific examples and the Block Kit Builder for UI prototyping.

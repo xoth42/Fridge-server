@@ -412,7 +412,10 @@ E2E_ARGS=(
   "--pushgateway-url" "http://localhost:9091"
   "--username"        "${GF_ADMIN_USER:-admin}"
   "--password"        "${GF_ADMIN_PASSWORD}"
-  "--recipient-email" "alerts.wanglab@gmail.com"
+  # Use WATCHTOWER_NOTIFY_EMAIL from .env if present; fall back to the
+  # prior default. This ensures E2E notifications target the configured
+  # admin address rather than a broad mailing list.
+  "--recipient-email" "${WATCHTOWER_NOTIFY_EMAIL:-alerts.wanglab@gmail.com}"
 )
 
 if [[ -n "${GMAIL_APP_PASSWORD:-}" ]]; then

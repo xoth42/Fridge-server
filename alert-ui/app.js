@@ -17,8 +17,10 @@ let refreshTimer = null;
 let alertSort = { key: 'status', dir: 'desc' };
 
 const ALERT_TEMPLATES = [
-  { name: 'Cooling Water too Hot',    fridge: 'fridge-dodo', metric: 'cpatempwi_celsius', operator: '>',  threshold: 26 },
-  { name: 'Dodo Mixing chamber test', fridge: 'fridge-dodo', metric: 'ch6_t_kelvin',      operator: '>',  threshold: 0.01 },
+  { name: 'Cooling Water too Hot',    fridge: 'fridge-dodo',  metric: 'cpatempwi_celsius',       operator: '>',  threshold: 26 },
+  { name: 'Dodo Mixing chamber test', fridge: 'fridge-dodo',  metric: 'ch6_t_kelvin',            operator: '>',  threshold: 0.01 },
+  { name: 'Dodo data stale',          fridge: 'fridge-dodo',  metric: 'seconds_since_last_push', operator: '>',  threshold: 1200 },
+  { name: 'Manny data stale',         fridge: 'fridge-manny', metric: 'seconds_since_last_push', operator: '>',  threshold: 600 },
 ];
 let templateIndex = -1;
 
@@ -254,6 +256,11 @@ async function loadAlerts() {
       return;
     }
     const alerts = await resp.json();
+    // Diagnostic: log raw API response before any rendering to help trace why
+    // provisioned staleness alerts (staleness-all-fridges, staleness-dodo) were
+    // not appearing in the UI after reinstall. Check browser console for these.
+    console.log('[alert-ui] loadAlerts: received', alerts.length, 'alert(s)');
+    console.log('[alert-ui] alert uids:', alerts.map((a) => a.uid));
     // Cache alerts for use by assignment panel
     window._alertsCache = alerts;
     renderAlerts(alerts);

@@ -1,0 +1,78 @@
+{
+  "annotations": { "list": [ { "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" } ] },
+  "description": "Dodo flow rate monitoring — history and live value (mmol/s). Datasource uid must match config/grafana/provisioning/datasources/prometheus.yml.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "P1809F7CD0C75ACF3" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "Flow (mmol/s)",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 3,
+            "spanNulls": true
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "calcs": [ "lastNotNull", "min", "max" ], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "P1809F7CD0C75ACF3" }, "editorMode": "code", "expr": "flowmeter_mmol_per_s{instance=\"fridge-dodo\"}", "legendFormat": "Flow (mmol/s)", "range": true, "refId": "A" }
+      ],
+      "title": "Flow Rate — History",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "P1809F7CD0C75ACF3" },
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "#73BF69", "mode": "fixed" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 13 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": [ "lastNotNull" ], "fields": "", "values": false }, "text": {}, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "P1809F7CD0C75ACF3" }, "editorMode": "code", "expr": "flowmeter_mmol_per_s{instance=\"fridge-dodo\"}", "instant": true, "legendFormat": "Flow (mmol/s)", "range": false, "refId": "A" } ],
+      "title": "Flow (mmol/s)",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "id": 10,
+      "title": "Alerts",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "id": 11,
+      "options": { "alertInstanceLabelFilter": "", "alertName": "", "dashboardAlerts": false, "folder": { "id": 0, "title": "" }, "groupBy": [], "groupMode": "default", "maxItems": 20, "sortOrder": 1, "stateFilter": { "error": true, "firing": true, "noData": false, "normal": false, "pending": true } },
+      "title": "Active Alerts",
+      "type": "alertlist"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [ "fridge", "dodo", "flow" ],
+  "templating": { "list": [] },
+  "time": { "from": "now-3d", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Dodo \u2014 Flow",
+  "uid": "dodo-flow",
+  "version": 1,
+  "weekStart": ""
+}
