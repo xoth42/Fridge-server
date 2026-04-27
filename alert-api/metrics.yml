@@ -4,7 +4,7 @@ metrics:
     unit: "s"
     # Custom PromQL expression — FRIDGE_ID is replaced with the selected fridge at
     # rule-creation time. The alert fires when data hasn't arrived for threshold seconds.
-    expr: '(time() - last_push_timestamp_seconds{job="sensor_data",instance="FRIDGE_ID"})'
+    expr: 'clamp_min(time() - last_push_timestamp_seconds{job="sensor_data",instance="FRIDGE_ID"}, 0)'
   - name: cpatempwi_celsius
     label: "Cooling Water Inlet Temp"
     unit: "°C"
