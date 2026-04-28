@@ -1,12 +1,12 @@
 # Fridge Monitor — Server Stack
 
-### Alertui
+### Custom Alertui
 <img src="docs/alertui.png" alt="alertui snapshot" width="50%">
 
-### Temperature Dashboard
+### Grafana Temperature Dashboard
 <img src="docs/cooldowntmp.png" alt="dashboard snapshot" width="50%">
 
-### Slack command
+### Slack integration
 <img src="docs/slackcmd.png" alt="slack snapshot" width="50%">
 
 Monitoring stack for Wang Lab dilution refrigerators. Receives temperature and
