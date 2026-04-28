@@ -1,5 +1,14 @@
 # Fridge Monitor — Server Stack
 
+### Alertui
+<img src="docs/alertui.png" alt="alertui snapshot" width="50%">
+
+### Temperature Dashboard
+<img src="docs/cooldowntmp.png" alt="dashboard snapshot" width="50%">
+
+### Slack command
+<img src="docs/slackcmd.png" alt="slack snapshot" width="50%">
+
 Monitoring stack for Wang Lab dilution refrigerators. Receives temperature and
 pressure metrics from fridge computers, stores them in Prometheus, and displays
 them in Grafana. Sends alerts via Slack and email.
