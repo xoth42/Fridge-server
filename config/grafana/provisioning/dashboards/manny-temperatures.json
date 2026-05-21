@@ -138,7 +138,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "CP"
+              "options": "FSE"
             },
             "properties": [
               {
@@ -227,7 +227,7 @@
           },
           "editorMode": "code",
           "expr": "ch9_t_kelvin{instance=\"fridge-manny\"}",
-          "legendFormat": "CP",
+          "legendFormat": "FSE",
           "range": true,
           "refId": "E"
         }
@@ -593,12 +593,12 @@
           "editorMode": "code",
           "expr": "ch9_t_kelvin{instance=\"fridge-manny\"} * 1000",
           "instant": true,
-          "legendFormat": "CP",
+          "legendFormat": "FSE",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Cold Plate (CP)",
+      "title": "FSE",
       "type": "stat"
     },
     {

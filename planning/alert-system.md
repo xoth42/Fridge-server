@@ -324,7 +324,7 @@ metrics:
     label: "CH6 MXC (K)"
     unit: K
   - name: ch9_t_kelvin
-    label: "CH9 CP Flange (K)"
+    label: "CH9 FSE Temperature (K)"
     unit: K
     fridges: [manny]          # only present on Manny
   - name: flowmeter_mmol_per_s

@@ -56,7 +56,7 @@ curl -sG 'http://localhost:9090/api/v1/query' \
 ### Manny — current snapshot
 
 ```bash
-# All temperatures at once (50K / 4K / Still / MXC / CP flanges)
+# All temperatures at once (50K / 4K / Still / MXC / FSE)
 curl -sG 'http://localhost:9090/api/v1/query' \
   --data-urlencode 'query={instance="fridge-manny", job="sensor_data", __name__=~"ch._t_kelvin"}' \
   | jq '.data.result[] | {metric: .metric.__name__, value: .value[1]}'
@@ -66,7 +66,7 @@ curl -sG 'http://localhost:9090/api/v1/query' \
   --data-urlencode 'query=ch6_t_kelvin{instance="fridge-manny"}' \
   | jq '.data.result[0].value[1]'
 
-# CP flange temperature (CH9 — present on Manny, absent on Dodo)
+# FSE temperature (CH9 — present on Manny, absent on Dodo)
 curl -sG 'http://localhost:9090/api/v1/query' \
   --data-urlencode 'query=ch9_t_kelvin{instance="fridge-manny"}' \
   | jq '.data.result[0].value[1]'
