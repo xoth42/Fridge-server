@@ -10,8 +10,9 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
-      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}
-      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-15GB}
+      - --web.enable-admin-api
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-60d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-30GB}
     volumes:
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro

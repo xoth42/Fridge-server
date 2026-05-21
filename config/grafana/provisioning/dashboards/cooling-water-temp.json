@@ -46,12 +46,12 @@
               "viz": false
             },
             "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 4,
+            "lineWidth": 0.5,
+            "pointSize": 3,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "auto",
+            "showPoints": "always",
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -155,10 +155,12 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "none"
         }
       },
+      "pluginVersion": "11.6.0",
       "targets": [
         {
           "datasource": {
@@ -508,29 +510,33 @@
         "alertInstanceLabelFilter": "",
         "alertName": "",
         "dashboardAlerts": false,
+        "datasource": "-- Grafana --",
         "folder": {
           "id": 0,
-          "title": ""
-        },
+          "title": "User Alerts",
+          "uid": "bfizixgdic2yoa"
+    },
         "groupBy": [],
         "groupMode": "default",
         "maxItems": 20,
+        "showInactiveAlerts": true,
         "sortOrder": 1,
         "stateFilter": {
           "error": true,
           "firing": true,
-          "noData": false,
-          "normal": false,
+          "noData": true,
+          "normal": true,
           "pending": true
-        }
+        },
+        "viewMode": "list"
       },
-      "title": "Active Alerts",
+      "title": "Alerts",
       "type": "alertlist"
     }
   ],
-  "refresh": "30s",
+  "preload": false,
+  "refresh": "5s",
   "schemaVersion": 39,
-  "style": "dark",
   "tags": [
     "fridge",
     "manny",

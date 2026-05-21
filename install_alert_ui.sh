@@ -429,6 +429,18 @@ else
   E2E_ARGS+=("--skip-email-check")
 fi
 
+nds_exit=0
+python3 testui/test_no_data_state.py \
+  --api-url "http://localhost:8000/api" \
+  --grafana-url "http://localhost:3000" \
+  -u "${GF_ADMIN_USER}" -p "${GF_ADMIN_PASSWORD}" || nds_exit=$?
+
+case "$nds_exit" in
+  0) ok "noDataState toggle test PASSED." ;;
+  2) warn "noDataState test could not run (setup error, see output above)." ;;
+  *) warn "noDataState toggle test FAILED — check alert-api and Grafana provisioning API." ;;
+esac
+
 e2e_exit=0
 python3 testui/e2e_mail_test.py "${E2E_ARGS[@]}" || e2e_exit=$?
 
