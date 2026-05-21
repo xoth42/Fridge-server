@@ -73,13 +73,14 @@
               <th class="col-metric">Metric</th>
               <th>Current Value</th>
               <th class="col-operator">Condition</th>
+              <th>No Data</th>
               <th>Recipients</th>
               <th>On/Off</th>
               <th>Delete</th>
             </tr>
           </thead>
           <tbody id="alerts-body">
-            <tr class="empty-row"><td colspan="8">Loading&hellip;</td></tr>
+            <tr class="empty-row"><td colspan="9">Loading&hellip;</td></tr>
           </tbody>
         </table>
       </div>
@@ -130,6 +131,12 @@
           </div>
 
           <input id="f-duration" type="hidden" value="1m" />
+          <input id="f-no-data-state" type="hidden" value="Alerting" />
+
+          <div class="form-group">
+            <label>No Data Behavior</label>
+            <button type="button" class="btn btn-warn btn-sm" id="btn-no-data-state" onclick="toggleNoDataForm()">No Data → Fire</button>
+          </div>
 
           <p class="form-hint">Notifications route to all recipients via the notification policy.</p>
 

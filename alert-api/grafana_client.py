@@ -419,6 +419,20 @@ class GrafanaClient:
             )
             resp.raise_for_status()
 
+    async def set_no_data_state(self, uid: str, no_data_state: str) -> None:
+        """Set the noDataState field on an existing alert rule."""
+        rule = await self.get_alert_rule(uid)
+        rule["noDataState"] = no_data_state
+        rule.pop("provenance", None)
+        headers = {**self._auth_headers, "X-Disable-Provenance": "true"}
+        async with httpx.AsyncClient(
+            base_url=self.base_url, headers=headers, timeout=10.0
+        ) as client:
+            resp = await client.put(
+                f"/api/v1/provisioning/alert-rules/{uid}", json=rule
+            )
+            resp.raise_for_status()
+
     async def rebuild_notification_policy(
         self,
         alert_items: list[dict],
@@ -674,6 +688,7 @@ class GrafanaClient:
         for_duration: str,
         folder_uid: str,
         expr: str | None = None,
+        no_data_state: str = "OK",
     ) -> dict:
         """Construct the Grafana alert rule JSON body from simplified inputs.
 
@@ -739,7 +754,7 @@ class GrafanaClient:
             "condition": "C",
             "data": data,
             "for": for_duration,
-            "noDataState": "NoData",
+            "noDataState": no_data_state,
             "execErrState": "Error",
             "labels": {
                 "severity": BASIC_SEVERITY,
@@ -805,6 +820,7 @@ class GrafanaClient:
             "operator": operator,
             "threshold": threshold,
             "enabled": not bool(rule.get("isPaused", False)),
+            "no_data_state": rule.get("noDataState", "OK"),
             "provisioned": rule.get("provenance") == "file",
             "state": rule.get("_state", "unknown"),
             "notify_to": notify_to,

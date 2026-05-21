@@ -42,6 +42,7 @@ from schemas import (
     OperatorItem,
     RecipientListItem,
     SetAlertEnabledRequest,
+    SetNoDataStateRequest,
     SetAlertRecipientsRequest,
     SetRecipientAutoSubscribeRequest,
 )
@@ -404,6 +405,7 @@ async def create_alert(req: CreateAlertRequest) -> CreateAlertResponse:
         for_duration=req.for_duration,
         folder_uid=folder_uid,
         expr=expr_override,
+        no_data_state=req.no_data_state,
     )
 
     try:
@@ -466,6 +468,19 @@ async def set_alert_enabled(uid: str, req: SetAlertEnabledRequest) -> dict:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
 
     return {"uid": uid, "enabled": req.enabled}
+
+
+@app.patch("/api/alerts/{uid}/no-data-state", dependencies=[Depends(require_auth)])
+async def set_alert_no_data_state(uid: str, req: SetNoDataStateRequest) -> dict:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", uid):
+        raise HTTPException(status_code=400, detail="Invalid alert UID")
+    try:
+        await _grafana.set_no_data_state(uid, req.no_data_state)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
+    return {"uid": uid, "no_data_state": req.no_data_state}
 
 
 @app.delete("/api/alerts/{uid}", dependencies=[Depends(require_auth)])

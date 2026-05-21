@@ -25,6 +25,15 @@ class CreateAlertRequest(BaseModel):
             raise ValueError("operator must be one of >, <, >=, <=")
         return v
 
+    no_data_state: str = "Alerting"
+
+    @field_validator("no_data_state")
+    @classmethod
+    def check_no_data_state(cls, v: str) -> str:
+        if v not in ("OK", "Alerting"):
+            raise ValueError("no_data_state must be 'OK' or 'Alerting'")
+        return v
+
 
 class CreateAlertResponse(BaseModel):
     uid: str
@@ -39,6 +48,7 @@ class AlertListItem(BaseModel):
     operator: str
     threshold: float
     enabled: bool = True
+    no_data_state: str = "OK"
     provisioned: bool
     state: str
     current_value: Optional[float] = None
@@ -48,6 +58,17 @@ class AlertListItem(BaseModel):
 
 class SetAlertEnabledRequest(BaseModel):
     enabled: bool
+
+
+class SetNoDataStateRequest(BaseModel):
+    no_data_state: str
+
+    @field_validator("no_data_state")
+    @classmethod
+    def check_no_data_state(cls, v: str) -> str:
+        if v not in ("OK", "Alerting"):
+            raise ValueError("no_data_state must be 'OK' or 'Alerting'")
+        return v
 
 
 class SetAlertRecipientsRequest(BaseModel):

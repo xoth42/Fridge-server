@@ -375,6 +375,9 @@ function renderAlerts(alerts) {
 
     const toggleBtn = `<button class="btn btn-sm ${a.enabled ? 'btn-warn' : 'btn-primary'}" onclick="event.stopPropagation(); toggleAlert('${escHtml(a.uid)}', ${!a.enabled}, this)">${a.enabled ? 'Disable' : 'Enable'}</button>`;
 
+    const noDataState = a.no_data_state || 'OK';
+    const noDataBtn = `<button class="btn btn-sm ${noDataState === 'Alerting' ? 'btn-warn' : 'btn-secondary'}" onclick="event.stopPropagation(); toggleNoDataState('${escHtml(a.uid)}', '${noDataState === 'Alerting' ? 'OK' : 'Alerting'}', this)">${noDataState === 'Alerting' ? 'Fire' : 'Ignore'}</button>`;
+
     const deleteBtn = a.provisioned
       ? ''
       : `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteAlert('${escHtml(a.uid)}', this)">Delete</button>`;
@@ -393,6 +396,7 @@ function renderAlerts(alerts) {
       <td class="col-metric">${escHtml(a.metric)}</td>
       ${currentCell}
       <td class="col-operator">${condition}</td>
+      <td>${noDataBtn}</td>
       <td class="col-recipients">${recipientCount}</td>
       <td>${toggleBtn}</td>
       <td>${deleteBtn}</td>
@@ -429,6 +433,31 @@ async function toggleAlert(uid, enabled, btn) {
       toast('Toggle failed.', 'error');
       btn.disabled = false;
       btn.textContent = enabled ? 'Enable' : 'Disable';
+    }
+  }
+}
+
+async function toggleNoDataState(uid, newState, btn) {
+  btn.disabled = true;
+  btn.className = 'btn btn-sm btn-secondary';
+  btn.textContent = '…';
+  try {
+    const resp = await apiFetch(`/alerts/${uid}/no-data-state`, {
+      method: 'PATCH',
+      body: JSON.stringify({ no_data_state: newState }),
+    });
+    if (resp.ok) {
+      toast(`No-data behavior set to ${newState === 'Alerting' ? 'Fire' : 'Ignore'}.`);
+      await loadAlerts();
+    } else {
+      const body = await resp.json().catch(() => ({}));
+      toast(body.detail || `Error ${resp.status}`, 'error');
+      await loadAlerts();
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthenticated') {
+      toast('Toggle failed.', 'error');
+      await loadAlerts();
     }
   }
 }
@@ -602,6 +631,23 @@ async function deleteAlert(uid, btn) {
 
 // ── Edit existing alert (populate form with its values) ────────────────────────
 
+function setNoDataFormState(state) {
+  document.getElementById('f-no-data-state').value = state;
+  const btn = document.getElementById('btn-no-data-state');
+  if (state === 'Alerting') {
+    btn.className = 'btn btn-warn btn-sm';
+    btn.textContent = 'No Data → Fire';
+  } else {
+    btn.className = 'btn btn-secondary btn-sm';
+    btn.textContent = 'No Data → Ignore';
+  }
+}
+
+function toggleNoDataForm() {
+  const current = document.getElementById('f-no-data-state').value;
+  setNoDataFormState(current === 'Alerting' ? 'OK' : 'Alerting');
+}
+
 function editAlert(alert) {
   // Populate form fields with this alert's values
   document.getElementById('f-name').value = alert.title || '';
@@ -610,6 +656,7 @@ function editAlert(alert) {
   document.getElementById('f-metric').value = alert.metric || '';
   document.getElementById('f-operator').value = alert.operator || '';
   document.getElementById('f-threshold').value = alert.threshold || '';
+  setNoDataFormState(alert.no_data_state || 'OK');
 
   // Reset template selector since we're now using an existing rule as template
   templateIndex = -1;
@@ -638,6 +685,7 @@ document.getElementById('btn-use-template').addEventListener('click', () => {
     document.getElementById('f-metric').innerHTML = '<option value="">— select fridge first —</option>';
     document.getElementById('f-operator').value = '';
     document.getElementById('f-threshold').value = '';
+    setNoDataFormState('Alerting');
     btn.textContent = 'Use Template';
     btn.className = 'btn btn-secondary btn-sm';
   } else {
@@ -701,6 +749,7 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
     operator: document.getElementById('f-operator').value,
     threshold: parseFloat(document.getElementById('f-threshold').value),
     for_duration: document.getElementById('f-duration').value,
+    no_data_state: document.getElementById('f-no-data-state').value,
   };
 
   // Try to create with original name; if conflict, retry with incremented name
@@ -721,6 +770,7 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
         populateFridgeDropdown();
         document.getElementById('f-metric').innerHTML =
           '<option value="">— select fridge first —</option>';
+        setNoDataFormState('Alerting');
         templateIndex = -1;
         const tplBtn = document.getElementById('btn-use-template');
         tplBtn.textContent = 'Use Template';
