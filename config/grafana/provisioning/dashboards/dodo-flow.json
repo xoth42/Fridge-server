@@ -58,7 +58,31 @@
     {
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
       "id": 11,
-      "options": { "alertInstanceLabelFilter": "", "alertName": "", "dashboardAlerts": false, "folder": { "id": 0, "title": "" }, "groupBy": [], "groupMode": "default", "maxItems": 20, "sortOrder": 1, "stateFilter": { "error": true, "firing": true, "noData": false, "normal": false, "pending": true } },
+      "options": {
+               "alertInstanceLabelFilter": "",
+        "alertName": "",
+        "dashboardAlerts": false,
+        "datasource": "-- Grafana --",
+        "folder": {
+          "id": 0,
+          "title": "User Alerts",
+          "uid": "bfizixgdic2yoa"
+    },
+        "groupBy": [],
+        "groupMode": "default",
+        "maxItems": 20,
+        "showInactiveAlerts": true,
+        "sortOrder": 1,
+        "stateFilter": {
+          "error": true,
+          "firing": true,
+          "noData": true,
+          "normal": true,
+          "pending": true
+        },
+        "viewMode": "list"
+
+        },
       "title": "Active Alerts",
       "type": "alertlist"
     }

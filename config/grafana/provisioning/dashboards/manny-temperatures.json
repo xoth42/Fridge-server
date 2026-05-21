@@ -625,13 +625,16 @@
         "alertInstanceLabelFilter": "",
         "alertName": "",
         "dashboardAlerts": false,
+        "datasource": "-- Grafana --",
         "folder": {
           "id": 0,
-          "title": ""
-        },
+          "title": "User Alerts",
+          "uid": "bfizixgdic2yoa"
+    },
         "groupBy": [],
         "groupMode": "default",
         "maxItems": 20,
+        "showInactiveAlerts": true,
         "sortOrder": 1,
         "stateFilter": {
           "error": true,
@@ -639,7 +642,8 @@
           "noData": true,
           "normal": true,
           "pending": true
-        }
+        },
+        "viewMode": "list"
       },
       "title": "Active Alerts",
       "type": "alertlist"

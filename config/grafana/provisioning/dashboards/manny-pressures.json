@@ -681,9 +681,13 @@
         "alertInstanceLabelFilter": "",
         "alertName": "",
         "dashboardAlerts": false,
+        "showInactiveAlerts": true,
+        "datasource": "-- Grafana --",
+
         "folder": {
           "id": 0,
-          "title": ""
+          "title": "User Alerts",
+          "uid": "bfizixgdic2yoa"
         },
         "groupBy": [],
         "groupMode": "default",
