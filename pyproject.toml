@@ -15,7 +15,7 @@ api = [
 docs = [
     "mkdocs==1.6.1",
     "mkdocs-material==9.6.14",
-    "pymdown-extensions==10.15",
+    "pymdown-extensions==10.21.3",
 ]
 test = [
     "pytest>=9.0",
