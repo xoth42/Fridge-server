@@ -23,3 +23,12 @@ nav:
   - Quick Start: quickstart.md
   - Operations: operations.md
   - Reference: reference.md
+  - Dashboard Renders:
+      - Cooling Water Temp (C): render-cooling-water-temp.md
+      - Cooling Water Temp (F): render-cooling-water-temp-f.md
+      - Dodo Flow: render-dodo-flow.md
+      - Dodo Pressure: render-dodo-pressure.md
+      - Dodo Temperature: render-dodo-temp.md
+      - Manny Flow: render-manny-flow.md
+      - Manny Pressure: render-manny-pressure.md
+      - Manny Temperature: render-manny-temp.md
