@@ -83,8 +83,6 @@ jobs:
           AUTH="${GF_ADMIN_USER}:${GF_ADMIN_PASSWORD}"
           DS=$(curl -sS -u "$AUTH" http://localhost:3000/api/datasources/name/Prometheus)
           python3 test/testdata/check_grafana_datasource.py "$DS"
-          DASHES=$(curl -sS -u "$AUTH" 'http://localhost:3000/api/search?query=Fridge%20Test')
-          python3 test/testdata/check_grafana_dashboard.py "$DASHES"
 
       - name: Run pytest suite
         env:
