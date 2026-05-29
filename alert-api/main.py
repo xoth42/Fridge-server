@@ -522,8 +522,24 @@ async def set_alert_recipients(
 
     try:
         await _grafana.set_alert_notify_to(uid, req.contact_uids)
+
+        # Race condition fix: Grafana's provisioning API is eventually consistent.
+        # If we re-read all rules immediately after the PUT above, Grafana may
+        # return the stale rule (notify_to absent) before it has flushed the write.
+        # rebuild_notification_policy would then build no per-recipient route for
+        # this alert. When the alert fires, the catch-all guard ("notify_to !~ .+")
+        # blocks it because the label IS present on the rule — so nobody receives it.
+        #
+        # Fix: read all rules first, then patch the specific rule's notify_to
+        # in-memory with the value we just wrote. This guarantees the policy rebuild
+        # sees the correct notify_to regardless of Grafana's consistency window.
         raw_rules = await _grafana.list_alert_rules()
         items = [GrafanaClient.parse_rule(r) for r in raw_rules]
+        for item in items:
+            if item.get("uid") == uid:
+                item["notify_to"] = req.contact_uids
+                break
+
         await _grafana.rebuild_notification_policy(items)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=502, detail=f"Grafana error: {exc.response.status_code}")
