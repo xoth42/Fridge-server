@@ -279,6 +279,37 @@ def _create_test_rule(gf: _Client, folder_uid: str, rule_title: str, notify_to_u
     return str(uid)
 
 
+def _wait_for_rule_label(
+    gf: _Client,
+    rule_uid: str,
+    label_key: str,
+    expected_value: str,
+    timeout: int = 10,
+) -> None:
+    """Poll until a Grafana rule's label matches expected_value, then return.
+
+    Grafana's provisioning API is eventually consistent — a GET immediately
+    after a POST/PUT may return stale data. Callers that depend on a label
+    being visible (e.g. for a policy rebuild) should wait here first.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            rule = gf.get(f"/api/v1/provisioning/alert-rules/{rule_uid}")
+            if isinstance(rule, dict):
+                actual = rule.get("labels", {}).get(label_key, "")
+                if actual == expected_value:
+                    _log(f"  Rule label {label_key!r} confirmed visible in Grafana.")
+                    return
+        except Exception:
+            pass
+        time.sleep(0.5)
+    _warn(
+        f"Rule {rule_uid} label {label_key!r} did not reach expected value "
+        f"within {timeout}s — proceeding anyway (policy rebuild may be stale)."
+    )
+
+
 def _set_rule_group_interval(gf: _Client, folder_uid: str, interval_seconds: int) -> None:
     """Read the test rule group and rewrite with a shorter eval interval."""
     path = f"/api/v1/provisioning/folder/{folder_uid}/rule-groups/{urllib.parse.quote(TEST_RULE_GROUP)}"
@@ -650,8 +681,16 @@ def main() -> int:
         rule_uid = _create_test_rule(gf, folder_uid, rule_title, notify_to_str)
         _log(f"  Rule created: uid={rule_uid} (notify_to={notify_to_str})")
 
-        # Rebuild the notification policy now that the rule with notify_to exists,
-        # so the per-recipient route and catch-all guard are applied immediately.
+        # Wait for Grafana to reflect the rule's notify_to label before rebuilding
+        # the notification policy. Grafana's provisioning API is eventually
+        # consistent: a GET immediately after a POST may return the rule without
+        # the labels we just wrote, causing the policy rebuild to see no notify_to
+        # on this rule. The result is an unguarded catch-all that fires the test
+        # alert to ALL auto-subscribed recipients rather than only the intended ones.
+        _wait_for_rule_label(gf, rule_uid, "notify_to", notify_to_str)
+
+        # Rebuild now that Grafana has confirmed the label is visible, so the
+        # per-recipient route and catch-all guard are applied before the alert fires.
         try:
             _log("Rebuilding notification policy (per-recipient guard)...")
             api.post("/policy/rebuild", None)
