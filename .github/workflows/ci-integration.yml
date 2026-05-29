@@ -1,0 +1,86 @@
+name: ci-integration
+
+# Tier 2: boot + metrics smoke tests + full pytest suite.
+# Catches alert-api logic bugs, policy routing regressions, and schema errors.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gettext jq python3 python3-pip
+
+      - name: Set up CI environment
+        run: |
+          cp test/.env.ci .env
+          source .env
+          export $(grep -v '^#' .env | xargs)
+          envsubst < config/alertmanager/alertmanager.yml.template \
+            > config/alertmanager/alertmanager.runtime.yml
+
+      - name: Build and start CI stack
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            up -d --build
+
+      - name: Wait for Grafana
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || echo 000)
+            [ "$code" = "200" ] && echo "Grafana ready." && break
+            [ "$i" -eq 30 ] && echo "Grafana timed out." && exit 1
+            sleep 2
+          done
+
+      - name: Bootstrap SA token and restart alert-api
+        run: bash scripts/ci_bootstrap.sh
+
+      - name: Install Python test dependencies
+        run: pip install -e ".[test]"
+
+      - name: Push synthetic fridge metrics
+        run: python3 test/testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
+
+      - name: Wait for Prometheus scrape cycle
+        # Prometheus scrape interval is 15s; 16s guarantees at least one cycle.
+        run: sleep 16
+
+      - name: Verify Prometheus has the metric
+        run: |
+          RESPONSE=$(curl -sS 'http://localhost:9090/api/v1/query?query=%7Bjob%3D%22sensor_data%22%7D')
+          python3 test/testdata/check_prometheus_metric.py "$RESPONSE"
+
+      - name: Verify Grafana datasource and dashboards
+        run: |
+          AUTH="admin:ci-admin-password"
+          DS=$(curl -sS -u "$AUTH" http://localhost:3000/api/datasources/name/Prometheus)
+          python3 test/testdata/check_grafana_datasource.py "$DS"
+          DASHES=$(curl -sS -u "$AUTH" 'http://localhost:3000/api/search?query=Fridge%20Test')
+          python3 test/testdata/check_grafana_dashboard.py "$DASHES"
+
+      - name: Run pytest suite
+        env:
+          GF_ADMIN_USER: admin
+          GF_ADMIN_PASSWORD: ci-admin-password
+          GRAFANA_URL: http://localhost:3000
+          ALERT_API_URL: http://localhost:8000/api
+          # Use a fridge/metric that pushtestmetrics.py actually pushes.
+          TEST_FRIDGE: fridge-manny
+          TEST_METRIC: ch1_t_kelvin
+        run: python -m pytest test/ -v
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v

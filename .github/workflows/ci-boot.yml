@@ -1,0 +1,59 @@
+name: ci-boot
+
+# Tier 1: verify the full stack starts cleanly and alert-api reaches Grafana.
+# If this fails, nothing else will work.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  boot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gettext jq
+
+      - name: Set up CI environment
+        run: |
+          cp test/.env.ci .env
+          source .env
+          export $(grep -v '^#' .env | xargs)
+          envsubst < config/alertmanager/alertmanager.yml.template \
+            > config/alertmanager/alertmanager.runtime.yml
+
+      - name: Build and start CI stack
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            up -d --build
+
+      - name: Wait for Grafana
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health || echo 000)
+            [ "$code" = "200" ] && echo "Grafana ready." && break
+            [ "$i" -eq 30 ] && echo "Grafana timed out." && exit 1
+            sleep 2
+          done
+
+      - name: Bootstrap SA token and restart alert-api
+        run: bash scripts/ci_bootstrap.sh
+
+      - name: Verify alert-api health
+        run: |
+          body=$(curl -sS http://localhost:8000/api/health)
+          echo "$body"
+          echo "$body" | grep -q '"grafana":"reachable"' \
+            || { echo "alert-api not connected to Grafana"; exit 1; }
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
