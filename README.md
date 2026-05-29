@@ -1,4 +1,5 @@
 # Fridge Monitor Server
+[![docs](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml)
 
 Monitoring and alerting stack for Wang Lab dilution refrigerators. Fridge
 computers push sensor metrics to Pushgateway; Prometheus stores them; Grafana
