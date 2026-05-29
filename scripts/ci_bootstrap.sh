@@ -161,9 +161,12 @@ _upsert_env_var "GRAFANA_SA_TOKEN" "$SA_TOKEN"
 export GRAFANA_SA_TOKEN="$SA_TOKEN"
 ok "GRAFANA_SA_TOKEN written to .env."
 
-info "Restarting alert-api with new token..."
+info "Recreating alert-api with new token..."
+# docker compose restart does NOT reload environment variables — it keeps the
+# original container env. Use up --force-recreate to get a fresh container
+# that reads GRAFANA_SA_TOKEN from the updated .env.
 # shellcheck disable=SC2086
-docker compose $COMPOSE_FILES restart alert-api >/dev/null 2>&1
+docker compose $COMPOSE_FILES up -d --force-recreate alert-api >/dev/null 2>&1
 
 # ─── 5. Wait for alert-api to report grafana reachable ───────────────────────
 

@@ -12,6 +12,10 @@
 services:
 
   # Redirect all Grafana SMTP traffic to mailpit instead of the real relay.
+  # No port override needed — base file already binds 127.0.0.1:3000 which is
+  # reachable from the GitHub Actions runner. Adding a second binding here would
+  # cause "address already in use" because Compose override ports are appended,
+  # not replaced.
   grafana:
     environment:
       - GF_SMTP_HOST=mailpit:1025
@@ -19,17 +23,6 @@ services:
       - GF_SMTP_PASSWORD=
       - GF_SMTP_FROM_ADDRESS=alerts@ci.local
       - GF_SMTP_STARTTLS_POLICY=NoStartTLS
-    ports:
-      - "3000:3000"
-
-  prometheus:
-    ports:
-      - "9090:9090"
-
-  # alert-api must be accessible from the GitHub Actions runner.
-  alert-api:
-    ports:
-      - "8000:8000"
 
   # Mailpit — local SMTP sink with REST API for inbox inspection.
   # SMTP on :1025, HTTP API + web UI on :8025.
