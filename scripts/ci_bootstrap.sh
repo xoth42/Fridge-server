@@ -96,7 +96,7 @@ if [[ -z "$SA_ID" || "$SA_ID" == "null" ]]; then
     -H "Content-Type: application/json" \
     -d "{\"name\":\"${SA_NAME}\",\"role\":\"Admin\",\"isDisabled\":false}" \
     "${GRAFANA_URL}/api/serviceaccounts" 2>/dev/null || echo "000")
-  [[ "$CREATE_CODE" == "200" ]] || die "SA creation failed (HTTP $CREATE_CODE): $(cat "$CREATE_BODY")"
+  [[ "$CREATE_CODE" == "200" || "$CREATE_CODE" == "201" ]] || die "SA creation failed (HTTP $CREATE_CODE): $(cat "$CREATE_BODY")"
   SA_ID=$(_json_field "$CREATE_BODY" '.id')
   rm -f "$CREATE_BODY"
   ok "Service account created (id=${SA_ID})."
@@ -149,7 +149,7 @@ TOKEN_CODE=$(curl -sS -o "$TOKEN_BODY" -w '%{http_code}' \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"${TOKEN_NAME}\"}" \
   "${GRAFANA_URL}/api/serviceaccounts/${SA_ID}/tokens" 2>/dev/null || echo "000")
-[[ "$TOKEN_CODE" == "200" ]] || die "Token creation failed (HTTP $TOKEN_CODE): $(cat "$TOKEN_BODY")"
+[[ "$TOKEN_CODE" == "200" || "$TOKEN_CODE" == "201" ]] || die "Token creation failed (HTTP $TOKEN_CODE): $(cat "$TOKEN_BODY")"
 
 SA_TOKEN=$(_json_field "$TOKEN_BODY" '.key')
 rm -f "$TOKEN_BODY"

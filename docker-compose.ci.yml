@@ -2,20 +2,19 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml <command>
 #
 # Changes from the base file:
-#   - Removes caddy, duckdns, watchtower (require external credentials)
+#   - Disables caddy, duckdns, watchtower (require external credentials)
 #   - Adds mailpit (local fake SMTP + REST inbox API) for email delivery testing
 #   - Overrides Grafana SMTP config to route through mailpit
-#   - Exposes alert-api on all interfaces (CI runner needs to reach it)
-#   - Exposes Prometheus and Grafana on all interfaces for the same reason
 #   - Disables MandatoryStartTLS (mailpit does not use TLS)
+#
+# Port note: base file already binds all services to 127.0.0.1 which is
+# reachable from the GitHub Actions runner. Do NOT add port overrides here —
+# Compose appends rather than replaces port lists, causing duplicate bindings
+# and "address already in use" errors at startup.
 
 services:
 
   # Redirect all Grafana SMTP traffic to mailpit instead of the real relay.
-  # No port override needed — base file already binds 127.0.0.1:3000 which is
-  # reachable from the GitHub Actions runner. Adding a second binding here would
-  # cause "address already in use" because Compose override ports are appended,
-  # not replaced.
   grafana:
     environment:
       - GF_SMTP_HOST=mailpit:1025
@@ -26,8 +25,9 @@ services:
 
   # Mailpit — local SMTP sink with REST API for inbox inspection.
   # SMTP on :1025, HTTP API + web UI on :8025.
+  # Pinned to a specific version for reproducible CI runs.
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.22
     container_name: fridge-mailpit
     ports:
       - "1025:1025"
@@ -36,10 +36,13 @@ services:
       - fridge-monitoring
     restart: unless-stopped
 
-# Remove production-only services that require external credentials or DNS.
+  # Disable production-only services that require external credentials or DNS.
+  # The profiles key prevents these from starting unless explicitly activated.
   caddy:
     profiles: [disabled]
+
   duckdns:
     profiles: [disabled]
+
   watchtower:
     profiles: [disabled]

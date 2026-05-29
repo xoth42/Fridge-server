@@ -28,8 +28,7 @@ jobs:
       - name: Set up CI environment
         run: |
           cp test/.env.ci .env
-          source .env
-          export $(grep -v '^#' .env | xargs)
+          set -a; source .env; set +a
           envsubst < config/alertmanager/alertmanager.yml.template \
             > config/alertmanager/alertmanager.runtime.yml
 

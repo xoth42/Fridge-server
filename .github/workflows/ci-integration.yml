@@ -28,8 +28,7 @@ jobs:
       - name: Set up CI environment
         run: |
           cp test/.env.ci .env
-          source .env
-          export $(grep -v '^#' .env | xargs)
+          set -a; source .env; set +a
           envsubst < config/alertmanager/alertmanager.yml.template \
             > config/alertmanager/alertmanager.runtime.yml
 
@@ -56,9 +55,22 @@ jobs:
       - name: Push synthetic fridge metrics
         run: python3 test/testdata/pushtestmetrics.py --pushgateway-url http://localhost:9091
 
-      - name: Wait for Prometheus scrape cycle
-        # Prometheus scrape interval is 15s; 16s guarantees at least one cycle.
-        run: sleep 16
+      - name: Wait for Prometheus to scrape the metric
+        # prometheus.yml sets scrape_interval: 45s, so 16s is not enough.
+        # Poll until the metric appears (up to 90s) rather than sleeping a fixed
+        # duration that would fail intermittently depending on scrape timing.
+        run: |
+          for i in $(seq 1 18); do
+            result=$(curl -sS 'http://localhost:9090/api/v1/query?query=%7Bjob%3D%22sensor_data%22%7D')
+            count=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',{}).get('result',[])))" 2>/dev/null || echo 0)
+            if [ "$count" -gt 0 ]; then
+              echo "Metric visible in Prometheus ($count series)."
+              break
+            fi
+            [ "$i" -eq 18 ] && echo "Metric not visible after 90s." && exit 1
+            echo "Waiting for scrape... ($((i * 5))s elapsed)"
+            sleep 5
+          done
 
       - name: Verify Prometheus has the metric
         run: |
@@ -67,7 +79,8 @@ jobs:
 
       - name: Verify Grafana datasource and dashboards
         run: |
-          AUTH="admin:ci-admin-password"
+          set -a; source .env; set +a
+          AUTH="${GF_ADMIN_USER}:${GF_ADMIN_PASSWORD}"
           DS=$(curl -sS -u "$AUTH" http://localhost:3000/api/datasources/name/Prometheus)
           python3 test/testdata/check_grafana_datasource.py "$DS"
           DASHES=$(curl -sS -u "$AUTH" 'http://localhost:3000/api/search?query=Fridge%20Test')
