@@ -1,0 +1,25 @@
+site_name: Fridge Monitor Server
+site_url: https://xoth42.github.io/Fridge-server/
+repo_url: https://github.com/xoth42/Fridge-server
+edit_uri: ''
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.tabs
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Operations: operations.md
+  - Reference: reference.md

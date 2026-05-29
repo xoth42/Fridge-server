@@ -107,7 +107,10 @@ services:
   # Alert API — stateless proxy for simplified alert management
   # ---------------------------------------------------------------------------
   alert-api:
-    build: ./alert-api
+    build:
+      # The repo root is the build context so Docker can read requirements/normal.txt.
+      context: .
+      dockerfile: alert-api/Dockerfile
     container_name: fridge-alert-api
     labels:
       - "com.centurylinklabs.watchtower.enable=false"
