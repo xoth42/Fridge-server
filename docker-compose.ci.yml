@@ -1,0 +1,48 @@
+# CI override for docker-compose.yml.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml <command>
+#
+# Changes from the base file:
+#   - Disables caddy, duckdns, watchtower (require external credentials)
+#   - Adds mailpit (local fake SMTP + REST inbox API) for email delivery testing
+#   - Overrides Grafana SMTP config to route through mailpit
+#   - Disables MandatoryStartTLS (mailpit does not use TLS)
+#
+# Port note: base file already binds all services to 127.0.0.1 which is
+# reachable from the GitHub Actions runner. Do NOT add port overrides here —
+# Compose appends rather than replaces port lists, causing duplicate bindings
+# and "address already in use" errors at startup.
+
+services:
+
+  # Redirect all Grafana SMTP traffic to mailpit instead of the real relay.
+  grafana:
+    environment:
+      - GF_SMTP_HOST=mailpit:1025
+      - GF_SMTP_USER=
+      - GF_SMTP_PASSWORD=
+      - GF_SMTP_FROM_ADDRESS=alerts@ci.local
+      - GF_SMTP_STARTTLS_POLICY=NoStartTLS
+
+  # Mailpit — local SMTP sink with REST API for inbox inspection.
+  # SMTP on :1025, HTTP API + web UI on :8025.
+  # Pinned to a specific version for reproducible CI runs.
+  mailpit:
+    image: axllent/mailpit:v1.22
+    container_name: fridge-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - fridge-monitoring
+    restart: unless-stopped
+
+  # Disable production-only services that require external credentials or DNS.
+  # The profiles key prevents these from starting unless explicitly activated.
+  caddy:
+    profiles: [disabled]
+
+  duckdns:
+    profiles: [disabled]
+
+  watchtower:
+    profiles: [disabled]

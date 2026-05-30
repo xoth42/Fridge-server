@@ -17,9 +17,9 @@ load_dotenv()
 # ── Files not yet migrated from standalone-script style to pytest ─────────────
 # Remove a file from this list once it has been converted.
 collect_ignore = [
-    "testui/e2e_mail_test.py",
-    "testui/test_no_data_state.py",
-    "testslack/test_alerts.py",
+    "testui/e2e_mail_test.py",       # standalone script for manual production runs
+    "testui/test_no_data_state.py",  # standalone script, not yet converted to pytest
+    "testslack/test_alerts.py",      # standalone CLI tool, not yet converted to pytest
 ]
 
 
@@ -57,3 +57,15 @@ def test_fridge() -> str:
 @pytest.fixture(scope="session")
 def test_metric() -> str:
     return os.getenv("TEST_METRIC", "ch1_t_kelvin")
+
+
+@pytest.fixture(scope="session")
+def mailpit_url() -> str:
+    """Mailpit HTTP API base URL. Used for inbox checks in e2e tests.
+    Set MAILPIT_URL env var in CI; leave unset to skip mailpit-dependent tests."""
+    return os.getenv("MAILPIT_URL", "http://localhost:8025")
+
+
+@pytest.fixture(scope="session")
+def pushgateway_url() -> str:
+    return os.getenv("PUSHGATEWAY_URL", "http://localhost:9091")
