@@ -1,6 +1,9 @@
 # Fridge Monitor Server
-[![docs](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml)
-[![ci-integration](https://github.com/xoth42/Fridge-server/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-integration.yml)
+
+[![Boot](https://github.com/xoth42/Fridge-server/actions/workflows/ci-boot.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-boot.yml)
+[![Integration](https://github.com/xoth42/Fridge-server/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-integration.yml)
+[![E2E](https://github.com/xoth42/Fridge-server/actions/workflows/ci-e2e.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-e2e.yml)
+[![Docs](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml)
 
 Monitoring and alerting stack for Wang Lab dilution refrigerators. Fridge
 computers push sensor metrics to Pushgateway; Prometheus stores them; Grafana
