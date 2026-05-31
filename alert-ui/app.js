@@ -1,8 +1,8 @@
 /* Fridge Alert Manager — app.js
  *
- * Auth: Grafana Basic auth credentials stored in sessionStorage.
+ * Auth: Grafana Basic auth header is held in-memory only (never browser storage).
  * All /alerts/api/* calls include "Authorization: Basic <base64>" automatically.
- * On 401, the login modal is shown and the credential is cleared.
+ * On 401 or sign-out, in-memory auth is cleared and login is shown.
  *
  * All fetch paths are absolute from the site root so they work behind Caddy.
  * 
@@ -11,7 +11,7 @@
  */
 
 // ── State ──────────────────────────────────────────────────────────────────
-let authHeader = sessionStorage.getItem('fridge_auth') || '';
+let authHeader = '';
 let metricsData = { metrics: [], fridges: [], operators: [] };
 let refreshTimer = null;
 let alertSort = { key: 'status', dir: 'desc' };
@@ -36,26 +36,13 @@ function hideLogin() {
   document.getElementById('login-modal').classList.remove('visible');
 }
 
-function setAuth(username, password) {
-  authHeader = 'Basic ' + btoa(username + ':' + password);
-  sessionStorage.setItem('fridge_auth', authHeader);
+function setAuth(username, headerValue) {
+  authHeader = headerValue;
   document.getElementById('header-username').textContent = username;
 }
 
 function clearAuth() {
   authHeader = '';
-  sessionStorage.removeItem('fridge_auth');
-}
-
-// Decode stored auth to get username (for display only)
-function storedUsername() {
-  if (!authHeader.startsWith('Basic ')) return '';
-  try {
-    const decoded = atob(authHeader.slice(6));
-    return decoded.split(':')[0];
-  } catch (_) {
-    return '';
-  }
 }
 
 // ── Fetch wrapper ───────────────────────────────────────────────────────────
@@ -108,7 +95,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     if (resp.status === 401) {
       document.getElementById('login-error').textContent = 'Incorrect username or password.';
     } else {
-      setAuth(username, password);
+      setAuth(username, testHeader);
       hideLogin();
       document.getElementById('login-username').value = '';
       document.getElementById('login-password').value = '';
@@ -204,6 +191,32 @@ function populateMetricDropdown(fridgeId) {
 
 document.getElementById('f-fridge').addEventListener('change', (e) => {
   populateMetricDropdown(e.target.value);
+});
+
+document.getElementById('alerts-body').addEventListener('click', (e) => {
+  const actionBtn = e.target.closest('button[data-action]');
+  if (actionBtn) {
+    e.stopPropagation();
+    const uid = actionBtn.dataset.uid || '';
+    if (actionBtn.dataset.action === 'toggle-enabled') {
+      toggleAlert(uid, actionBtn.dataset.enabled === 'true', actionBtn);
+      return;
+    }
+    if (actionBtn.dataset.action === 'toggle-no-data') {
+      toggleNoDataState(uid, actionBtn.dataset.targetState || 'OK', actionBtn);
+      return;
+    }
+    if (actionBtn.dataset.action === 'delete-alert') {
+      deleteAlert(uid, actionBtn);
+    }
+    return;
+  }
+
+  const row = e.target.closest('tr[data-alert-uid]');
+  if (!row) return;
+  const uid = row.dataset.alertUid;
+  const alert = (window._alertsCache || []).find((a) => a.uid === uid);
+  if (alert) editAlert(alert);
 });
 
 // Load notification policy (public) and render repeat_interval as hours
@@ -373,14 +386,14 @@ function renderAlerts(alerts) {
 
     const condition = a.operator ? `${escHtml(a.operator)} ${a.threshold}` : '—';
 
-    const toggleBtn = `<button class="btn btn-sm ${a.enabled ? 'btn-warn' : 'btn-primary'}" onclick="event.stopPropagation(); toggleAlert('${escHtml(a.uid)}', ${!a.enabled}, this)">${a.enabled ? 'Disable' : 'Enable'}</button>`;
+    const toggleBtn = `<button class="btn btn-sm ${a.enabled ? 'btn-warn' : 'btn-primary'}" data-action="toggle-enabled" data-uid="${escHtml(a.uid)}" data-enabled="${!a.enabled}">${a.enabled ? 'Disable' : 'Enable'}</button>`;
 
     const noDataState = a.no_data_state || 'OK';
-    const noDataBtn = `<button class="btn btn-sm ${noDataState === 'Alerting' ? 'btn-warn' : 'btn-secondary'}" onclick="event.stopPropagation(); toggleNoDataState('${escHtml(a.uid)}', '${noDataState === 'Alerting' ? 'OK' : 'Alerting'}', this)">${noDataState === 'Alerting' ? 'Fire' : 'Ignore'}</button>`;
+    const noDataBtn = `<button class="btn btn-sm ${noDataState === 'Alerting' ? 'btn-warn' : 'btn-secondary'}" data-action="toggle-no-data" data-uid="${escHtml(a.uid)}" data-target-state="${noDataState === 'Alerting' ? 'OK' : 'Alerting'}">${noDataState === 'Alerting' ? 'Fire' : 'Ignore'}</button>`;
 
     const deleteBtn = a.provisioned
       ? ''
-      : `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteAlert('${escHtml(a.uid)}', this)">Delete</button>`;
+      : `<button class="btn btn-danger btn-sm" data-action="delete-alert" data-uid="${escHtml(a.uid)}">Delete</button>`;
 
     const pencilIcon = `<span class="inline-pencil">✎</span>`;
     const titleWithIcon = `<span class="alert-title-cell">${escHtml(a.title)}${pencilIcon}</span>`;
@@ -389,7 +402,7 @@ function renderAlerts(alerts) {
       ? `<span class="recipient-count">${a.recipient_count}</span>`
       : '<span class="recipient-count">—</span>';
 
-    return `<tr onclick="editAlert(${escHtml(JSON.stringify(a))})" class="alert-row-editable">
+    return `<tr class="alert-row-editable" data-alert-uid="${escHtml(a.uid)}">
       <td>${titleWithIcon}</td>
       <td>${stateBadge}</td>
       <td>${escHtml(a.fridge)}</td>
@@ -647,6 +660,10 @@ function toggleNoDataForm() {
   const current = document.getElementById('f-no-data-state').value;
   setNoDataFormState(current === 'Alerting' ? 'OK' : 'Alerting');
 }
+
+document.getElementById('btn-no-data-state').addEventListener('click', toggleNoDataForm);
+document.getElementById('sort-status').addEventListener('click', () => setAlertSort('status'));
+document.getElementById('sort-fridge').addEventListener('click', () => setAlertSort('fridge'));
 
 function editAlert(alert) {
   // Populate form fields with this alert's values
@@ -1147,15 +1164,14 @@ function escHtml(str) {
   await loadPolicy();
   await loadMetrics();
 
+  // Wire up fridge-level quick-toggle buttons
+  const btnManny = document.getElementById('btn-manny-all');
+  if (btnManny) btnManny.addEventListener('click', () => toggleAllForFridge('Manny', btnManny));
+  const btnDodo = document.getElementById('btn-dodo-all');
+  if (btnDodo) btnDodo.addEventListener('click', () => toggleAllForFridge('Dodo', btnDodo));
+
   if (authHeader) {
-    // Show username from stored token
-    document.getElementById('header-username').textContent = storedUsername();
     await loadAll();
-    // Wire up fridge-level quick-toggle buttons
-    const btnManny = document.getElementById('btn-manny-all');
-    if (btnManny) btnManny.addEventListener('click', () => toggleAllForFridge('Manny', btnManny));
-    const btnDodo = document.getElementById('btn-dodo-all');
-    if (btnDodo) btnDodo.addEventListener('click', () => toggleAllForFridge('Dodo', btnDodo));
     // Ensure buttons reflect current alert state
     updateFridgeButtons();
   } else {

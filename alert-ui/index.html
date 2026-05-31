@@ -12,7 +12,7 @@
 <div id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
   <div class="login-box">
     <h2 id="login-title">Sign in</h2>
-    <p>Use your Grafana username and password.</p>
+    <p>Use a Grafana Editor account for this UI (avoid admin credentials here).</p>
     <form id="login-form">
       <div class="form-group" style="margin-bottom:12px">
         <label for="login-username">Username</label>
@@ -61,12 +61,12 @@
             <tr>
               <th>Name</th>
               <th>
-                <button type="button" class="th-sort" id="sort-status" onclick="setAlertSort('status')" aria-label="Sort by status">
+                <button type="button" class="th-sort" id="sort-status" aria-label="Sort by status">
                   Status <span id="sort-status-ind" class="th-sort-ind"></span>
                 </button>
               </th>
               <th>
-                <button type="button" class="th-sort" id="sort-fridge" onclick="setAlertSort('fridge')" aria-label="Sort by fridge">
+                <button type="button" class="th-sort" id="sort-fridge" aria-label="Sort by fridge">
                   Fridge <span id="sort-fridge-ind" class="th-sort-ind"></span>
                 </button>
               </th>
@@ -135,7 +135,7 @@
 
           <div class="form-group">
             <label>No Data Behavior</label>
-            <button type="button" class="btn btn-warn btn-sm" id="btn-no-data-state" onclick="toggleNoDataForm()">No Data → Fire</button>
+            <button type="button" class="btn btn-warn btn-sm" id="btn-no-data-state">No Data → Fire</button>
           </div>
 
           <p class="form-hint">Notifications route to all recipients via the notification policy.</p>
