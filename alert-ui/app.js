@@ -36,8 +36,8 @@ function hideLogin() {
   document.getElementById('login-modal').classList.remove('visible');
 }
 
-function setAuth(username, headerValue) {
-  authHeader = headerValue;
+function setAuth(username, authorizationHeader) {
+  authHeader = authorizationHeader;
   document.getElementById('header-username').textContent = username;
 }
 
@@ -389,7 +389,10 @@ function renderAlerts(alerts) {
     const toggleBtn = `<button class="btn btn-sm ${a.enabled ? 'btn-warn' : 'btn-primary'}" data-action="toggle-enabled" data-uid="${escHtml(a.uid)}" data-enabled="${!a.enabled}">${a.enabled ? 'Disable' : 'Enable'}</button>`;
 
     const noDataState = a.no_data_state || 'OK';
-    const noDataBtn = `<button class="btn btn-sm ${noDataState === 'Alerting' ? 'btn-warn' : 'btn-secondary'}" data-action="toggle-no-data" data-uid="${escHtml(a.uid)}" data-target-state="${noDataState === 'Alerting' ? 'OK' : 'Alerting'}">${noDataState === 'Alerting' ? 'Fire' : 'Ignore'}</button>`;
+    const noDataClass = noDataState === 'Alerting' ? 'btn-warn' : 'btn-secondary';
+    const noDataTarget = noDataState === 'Alerting' ? 'OK' : 'Alerting';
+    const noDataLabel = noDataState === 'Alerting' ? 'Fire' : 'Ignore';
+    const noDataBtn = `<button class="btn btn-sm ${noDataClass}" data-action="toggle-no-data" data-uid="${escHtml(a.uid)}" data-target-state="${noDataTarget}">${noDataLabel}</button>`;
 
     const deleteBtn = a.provisioned
       ? ''
