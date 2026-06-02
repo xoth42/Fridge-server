@@ -22,6 +22,10 @@ config/grafana/provisioning/alerting/dodo-staleness.yml
 
 Fridge-data-uploader
 
-mytmp
-
+# docs dir
 site
+
+# Misc local sratch files
+mytmp
+rtext
+repo-*.txt
