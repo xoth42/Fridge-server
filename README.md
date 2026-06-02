@@ -1,7 +1,5 @@
 # Fridge Monitor Server
-
-[![Boot](https://github.com/xoth42/Fridge-server/actions/workflows/ci-boot.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-boot.yml)
-[![Integration](https://github.com/xoth42/Fridge-server/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-integration.yml)
+[![Better Stack Badge](https://uptime.betterstack.com/status-badges/v1/monitor/2o0ie.svg)](https://uptime.betterstack.com/?utm_source=status_badge)
 [![E2E](https://github.com/xoth42/Fridge-server/actions/workflows/ci-e2e.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/ci-e2e.yml)
 [![Docs](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml/badge.svg)](https://github.com/xoth42/Fridge-server/actions/workflows/docs.yml)
 
