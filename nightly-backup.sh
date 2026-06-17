@@ -51,22 +51,31 @@ PROJECT="$(docker compose config --format json | jq -r '.name')"
 log "compose project: $PROJECT  (dir: $COMPOSE_DIR)"
 
 declare -A VOL_HOST
-while IFS=$'\t' read -r compose_name docker_name; do
-  host_path="$(docker volume inspect "$docker_name" -f '{{.Mountpoint}}' 2>/dev/null || true)"
-  if [[ -n "$host_path" && -d "$host_path" ]]; then
-    VOL_HOST["$compose_name"]="$host_path"
-    log "vol $compose_name  ->  $host_path"
-  else
-    log "skip $docker_name (no host mount yet — container never started?)"
-  fi
-done < <(
-  docker compose config --format json \
-    | jq -r --arg p "$PROJECT" '
-        (.volumes // {})
-        | to_entries[]
-        | [.key, ($p + "_" + .key)]
-        | @tsv'
-)
+# Discover by introspecting each running compose container's actual Mounts.
+# This is robust against project-name drift: we don't have to guess
+# "<project>_<short>" — Docker tells us the real volume name and host path.
+mapfile -t _cids < <(docker compose ps -q 2>/dev/null)
+[[ ${#_cids[@]} -gt 0 ]] || die "no running containers for project $PROJECT (start the stack first)"
+
+for cid in "${_cids[@]}"; do
+  while IFS=$'\t' read -r vol_name dest host_path; do
+    [[ -z "$vol_name" ]] && continue
+    [[ -d "$host_path" ]] || { log "skip $vol_name: $host_path not a dir"; continue; }
+    # Strip the project prefix (if any) for use as the dispatch key.
+    short="${vol_name#${PROJECT}_}"
+    short="${short#Fridge-server_}"            # legacy capitalisation fallback
+    VOL_HOST["$short"]="$host_path"
+    log "vol $short  ->  $host_path  (docker name: $vol_name, mounted at $dest)"
+  done < <(
+    docker inspect "$cid" --format '
+{{- range .Mounts -}}
+{{- if eq .Type "volume" }}{{ .Name }}{{"\t"}}{{ .Destination }}{{"\t"}}{{ .Source }}
+{{ end -}}
+{{- end -}}'
+  )
+done
+
+[[ ${#VOL_HOST[@]} -gt 0 ]] || die "discovered zero named volumes; check 'docker volume ls'"
 
 # ── staging ──────────────────────────────────────────────────────────────────
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
