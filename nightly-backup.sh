@@ -28,6 +28,9 @@ COMPOSE_DIR="${1:-${COMPOSE_DIR:-/opt/fridge-server}}"
 DEST="${2:-${BACKUP_DEST:-/var/backups/fridge}}"
 KEEP_DAILY="${KEEP_DAILY:-7}"
 LOCK="${LOCK:-/var/lock/fridge-backup.lock}"
+# Manjaro/Arch ship fs.protected_regular=1 — root cannot O_CREAT|O_TRUNC a
+# regular file in a sticky world-writable dir (e.g. /tmp) if it's owned by
+# a different user. Avoid /tmp for the lock; /var/lock or /run is safe.
 LOG_TAG="fridge-backup"
 
 log() { logger -t "$LOG_TAG" -- "$*" 2>/dev/null || true; printf '[%s] %s\n' "$(date +%FT%T)" "$*" >&2; }
@@ -110,22 +113,38 @@ quiesce_prometheus() {
 
 quiesce_grafana() {
   local host_path="$1"
-  log "grafana: sqlite3 .backup grafana.db (online backup API)"
-  docker exec fridge-grafana sh -c '
-      set -e
-      rm -f /var/lib/grafana/grafana.db.bak
-      sqlite3 /var/lib/grafana/grafana.db ".backup /var/lib/grafana/grafana.db.bak"
-  ' || die "grafana sqlite3 .backup failed"
+  local dst_dir="$STAGE/volumes/grafana-data"
+  mkdir -p "$dst_dir"
 
+  # Grafana 11.x official image (alpine-based) does NOT ship sqlite3. Use the
+  # host's sqlite3 against the volume's _data dir directly. The SQLite online
+  # backup API is filesystem-based, not container-bound; it takes shared locks
+  # and is safe to run concurrently with the live Grafana writer (WAL mode).
+  log "grafana: sqlite3 .backup (host-side, online backup API)"
+  if command -v sqlite3 >/dev/null; then
+    sqlite3 "file:$host_path/grafana.db?mode=ro" \
+            ".backup '$dst_dir/grafana.db'" \
+        || die "host sqlite3 .backup failed against $host_path/grafana.db"
+  else
+    # Fallback: throwaway alpine container with sqlite installed at runtime.
+    log "grafana: no host sqlite3; using throwaway alpine container"
+    docker run --rm \
+        -v "$host_path:/src:ro" \
+        -v "$dst_dir:/dst" \
+        alpine:3 sh -c \
+        'apk add --no-cache sqlite >/dev/null \
+         && sqlite3 file:/src/grafana.db?mode=ro ".backup /dst/grafana.db"' \
+        || die "alpine fallback sqlite3 .backup failed"
+  fi
+
+  # Copy the rest of the volume tree (plugins, png renders, etc.) but exclude
+  # the live DB files; the .backup'd copy in $dst_dir is canonical.
+  # --delete with --exclude preserves the excluded grafana.db on the dest side.
   rsync "${RSYNC_OPTS[@]}" \
         --exclude='grafana.db' \
         --exclude='grafana.db-wal' \
         --exclude='grafana.db-shm' \
-        "$host_path/" "$STAGE/volumes/grafana-data/"
-  # Promote the consistent copy to the canonical filename on the backup side.
-  mv "$STAGE/volumes/grafana-data/grafana.db.bak" \
-     "$STAGE/volumes/grafana-data/grafana.db"
-  docker exec fridge-grafana rm -f /var/lib/grafana/grafana.db.bak || true
+        "$host_path/" "$dst_dir/"
 }
 
 quiesce_alertmanager() {
