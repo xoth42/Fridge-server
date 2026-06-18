@@ -28,6 +28,16 @@ COMPOSE_DIR="${1:-${COMPOSE_DIR:-/opt/fridge-server}}"
 DEST="${2:-${BACKUP_DEST:-/var/backups/fridge}}"
 KEEP_DAILY="${KEEP_DAILY:-7}"
 LOCK="${LOCK:-/var/lock/fridge-backup.lock}"
+
+# Optional SSH identity for a remote $DEST (rsync-over-ssh nightly target).
+# Empty → use root's default ~/.ssh identities. Ignored for a local $DEST.
+BACKUP_SSH_KEY="${BACKUP_SSH_KEY:-}"
+SSH_CMD="ssh"
+if [[ -n "$BACKUP_SSH_KEY" ]]; then
+  [[ -r "$BACKUP_SSH_KEY" ]] || { printf '[%s] FATAL: BACKUP_SSH_KEY %s not readable\n' \
+       "$(date +%FT%T)" "$BACKUP_SSH_KEY" >&2; exit 1; }
+  SSH_CMD="ssh -i $BACKUP_SSH_KEY -o IdentitiesOnly=yes"
+fi
 # Manjaro/Arch ship fs.protected_regular=1 — root cannot O_CREAT|O_TRUNC a
 # regular file in a sticky world-writable dir (e.g. /tmp) if it's owned by
 # a different user. Avoid /tmp for the lock; /var/lock or /run is safe.
@@ -217,12 +227,12 @@ ship() {
   if [[ "$dest" == *:* ]]; then
     # remote
     local host="${dest%%:*}" path="${dest#*:}"
-    ssh "$host" "mkdir -p '$path/daily'"
+    $SSH_CMD "$host" "mkdir -p '$path/daily'"
     rsync "${RSYNC_OPTS[@]}" \
           --link-dest="$path/current/" \
-          -e ssh \
+          -e "$SSH_CMD" \
           "$stage/" "$host:$path/daily/$STAMP/"
-    ssh "$host" "ln -sfn 'daily/$STAMP' '$path/current'"
+    $SSH_CMD "$host" "ln -sfn 'daily/$STAMP' '$path/current'"
   else
     mkdir -p "$dest/daily"
     rsync "${RSYNC_OPTS[@]}" \
@@ -244,7 +254,7 @@ prune_local() {
     | xargs -r rm -rf
 }
 if [[ "$DEST" == *:* ]]; then
-  ssh "${DEST%%:*}" bash -s -- "${DEST#*:}" "$KEEP_DAILY" <<'REMOTE'
+  $SSH_CMD "${DEST%%:*}" bash -s -- "${DEST#*:}" "$KEEP_DAILY" <<'REMOTE'
 root="$1"; keep="$2"
 ls -1dt "$root/daily/"*/ 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -rf
 REMOTE
