@@ -147,6 +147,20 @@ quiesce_grafana() {
         || die "alpine fallback sqlite3 .backup failed"
   fi
 
+  # sqlite3 .backup writes the destination file as whoever ran the script
+  # (root, since we need sudo to read the source). That breaks the restore
+  # — Grafana runs as uid 472 inside the container and can't write a
+  # root-owned grafana.db, exits with "attempt to write a readonly
+  # database" in a restart loop. Mirror the source file's uid/gid/mode
+  # onto the backup copy so it survives the rsync to the new host.
+  local src_meta
+  src_meta="$(stat -c '%u %g %a' "$host_path/grafana.db")" \
+    || die "could not stat source grafana.db for uid/gid replication"
+  read -r _u _g _m <<< "$src_meta"
+  chown "$_u:$_g" "$dst_dir/grafana.db"
+  chmod "$_m"     "$dst_dir/grafana.db"
+  log "grafana: backup file set to uid=$_u gid=$_g mode=$_m (matches source)"
+
   # Copy the rest of the volume tree (plugins, png renders, etc.) but exclude
   # the live DB files; the .backup'd copy in $dst_dir is canonical.
   # --delete with --exclude preserves the excluded grafana.db on the dest side.

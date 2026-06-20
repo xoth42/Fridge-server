@@ -74,8 +74,12 @@ sudo tar --xattrs --acls --numeric-owner --sort=name \
          -czf "$STAGE/fridge-migration-$SNAP.tar.gz" "$SNAP"
 sudo chown $USER:$USER "$STAGE/fridge-migration-$SNAP.tar.gz"
 
-sha256sum "$STAGE/fridge-migration-$SNAP.tar.gz" \
-   | tee  "$STAGE/fridge-migration-$SNAP.tar.gz.sha256"
+# Record hashes with BASENAMES, not full paths — sha256sum -c on the
+# receiving host will look up files at whatever path is recorded here,
+# and the receiver doesn't share our directory layout. Run sha256sum
+# from inside $STAGE so the recorded path is just the filename.
+( cd "$STAGE" && sha256sum "fridge-migration-$SNAP.tar.gz" ) \
+   | tee "$STAGE/fridge-migration-$SNAP.tar.gz.sha256"
 
 # UID/GID preservation check — expect numeric uids like 0/0, 472/0, 65534/65534.
 tar -tvzf "$STAGE/fridge-migration-$SNAP.tar.gz" \
@@ -101,8 +105,8 @@ age -p -o "$STAGE/fridge-migration-$SNAP.tar.gz.age" \
        "$STAGE/fridge-migration-$SNAP.tar.gz"
 shred -u   "$STAGE/fridge-migration-$SNAP.tar.gz"
 
-sha256sum  "$STAGE/fridge-migration-$SNAP.tar.gz.age" \
-   | tee   "$STAGE/fridge-migration-$SNAP.tar.gz.age.sha256"
+( cd "$STAGE" && sha256sum "fridge-migration-$SNAP.tar.gz.age" ) \
+   | tee "$STAGE/fridge-migration-$SNAP.tar.gz.age.sha256"
 
 # Round-trip pre-flight: should print the same digest as the .tar.gz.sha256
 # created in phase 2. Confirms passphrase + age + tarball all match BEFORE

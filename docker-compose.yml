@@ -102,7 +102,13 @@ services:
     networks:
       - fridge-monitoring
     restart: unless-stopped
-
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q '\"database\":\"ok\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s 
+      # was probably 30s — give it 3 min on slow CPU
   # ---------------------------------------------------------------------------
   # Alert API — stateless proxy for simplified alert management
   # ---------------------------------------------------------------------------

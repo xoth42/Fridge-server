@@ -88,7 +88,21 @@ response. Don't undo them without re-reading the failure mode.
    live WAL/SHM are stale at restore time and corrupt the DB if
    carried over.
 
-7. **`git pull` after editing executable bit produces a mode merge
+7. **`sqlite3 .backup` writes the destination as the invoking user.**
+   The script runs as root (sudo, to read root-owned `_data/` dirs), so
+   the backup `grafana.db` lands as `root:root` mode `0644`. On the
+   restore host, the rsync preserves that uid; the container's grafana
+   user (uid 472) can't write its own DB; Grafana hits "attempt to
+   write a readonly database" during provisioning, exits, restart loop
+   forever. The script `stat`s the source DB after `.backup` and mirrors
+   uid/gid/mode onto the backup copy so this never bites. If you ever
+   see "readonly database" in restored Grafana logs, the fix is:
+   ```
+   sudo chown -R 472:0 /var/lib/docker/volumes/<project>_grafana-data/_data
+   sudo find ... -type f -name 'grafana.db*' -exec chmod 0640 {} \;
+   ```
+
+8. **`git pull` after editing executable bit produces a mode merge
    conflict.** Stash → pull → drop stash; or commit the mode change.
 
 ## systemd unit + timer
