@@ -150,8 +150,11 @@ fi
 step "Start ddns-updater"
 # --remove-orphans cleans up the now-dead fridge-duckdns container if it
 # survived a partial earlier run (compose stop+rm misses anything not
-# referenced by the current compose file).
-docker compose up -d --remove-orphans ddns-updater
+# referenced by the current compose file). --force-recreate guarantees the
+# container restarts with the freshly-rendered config.json AND gives us a
+# clean log stream (no stale crash lines from earlier failed attempts to
+# confuse the success/error grep below).
+docker compose up -d --remove-orphans --force-recreate ddns-updater
 sleep 2
 
 if ! docker ps --format '{{.Names}}' | grep -qx fridge-ddns-updater; then
@@ -164,19 +167,27 @@ step "Verify first update"
 info "waiting 10s for the first poll…"
 sleep 10
 
-logs="$(docker compose logs ddns-updater --tail=80 --no-color 2>/dev/null)"
+# Scope logs to the current container start only. Because we --force-recreate
+# above, the container's own log stream is clean; --tail still bounds it.
+logs="$(docker compose logs ddns-updater --tail=40 --no-color 2>/dev/null)"
 echo "$logs" | tail -20 | sed 's/^/    /'
 
-if echo "$logs" | grep -qiE 'failed|error|invalid'; then
-  warn "ddns-updater log contains errors — review above. Common causes:"
+# Order matters: a *daemon that's still running* with no "Shutdown successful"
+# is the strongest health signal, since name.com may legitimately report
+# "up to date" with no explicit success line on a no-op poll.
+if echo "$logs" | grep -qiE 'unknown provider|invalid|permission denied|fatal'; then
+  warn "ddns-updater log shows a config/auth error — review above. Common causes:"
+  warn "  - provider key wrong (must be \"name.com\")"
+  warn "  - NAMEDOTCOM_API_TOKEN wrong, or name.com API CIDR allowlist blocking this host"
   warn "  - CNAME still present at name.com (delete it first)"
-  warn "  - NAMEDOTCOM_API_TOKEN wrong"
-  warn "  - DDNS_OWNER doesn't match an existing record AND name.com auto-create blocked"
-elif echo "$logs" | grep -qiE 'success|updated|up to date'; then
-  ok "ddns-updater is healthy"
+elif echo "$logs" | grep -qiE 'shutdown successful'; then
+  warn "container exited (saw 'Shutdown successful') — it is NOT running. Check the error above."
+elif docker ps --format '{{.Names}}' | grep -qx fridge-ddns-updater \
+     && echo "$logs" | grep -qiE 'http server listening|update record|up to date|success'; then
+  ok "ddns-updater is healthy and running as a daemon"
 else
   warn "could not confirm success from logs — re-check in a minute with:"
-  warn "  docker compose logs ddns-updater --tail=80"
+  warn "  docker compose logs ddns-updater --tail=40"
 fi
 
 # ─── done ────────────────────────────────────────────────────────────────────
