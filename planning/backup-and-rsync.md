@@ -282,6 +282,15 @@ consequences that bite if you're used to a normal sshd:
    relevant smoke test since it's the same command channel the nightly
    script uses.
 
+3. **Remote retention via `prune_remote` is skipped on remote targets.**
+   The restricted shell blocks `ssh user@host 'rm -rf <olddir>'`, and
+   the sftp protocol can't do recursive directory removal. The script
+   relies on rsync.net's ZFS-based snapshot retention ("FreeSnaps" in
+   the quota panel) for time-travel; manual cleanup of timestamped
+   dirs is via `sftp` (`rmdir` for empty, file-by-file `rm` for
+   non-empty — tedious but rare since hardlink dedupe keeps the
+   actual data footprint small).
+
 If `.ssh/` doesn't exist on the account yet, create it via `sftp`
 (`mkdir .ssh; chmod 700 .ssh`) before the first `scp` of
 `authorized_keys`.

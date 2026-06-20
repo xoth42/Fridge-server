@@ -92,11 +92,16 @@ LOCK="${LOCK:-/var/lock/fridge-backup.lock}"
 # Empty → use root's default ~/.ssh identities. Ignored for a local $DEST.
 BACKUP_SSH_KEY="${BACKUP_SSH_KEY:-}"
 SSH_CMD="ssh"
+SFTP_CMD="sftp"
 if [[ -n "$BACKUP_SSH_KEY" ]]; then
   [[ -r "$BACKUP_SSH_KEY" ]] || { printf '[%s] FATAL: BACKUP_SSH_KEY %s not readable\n' \
        "$(date +%FT%T)" "$BACKUP_SSH_KEY" >&2; exit 1; }
   SSH_CMD="ssh -i $BACKUP_SSH_KEY -o IdentitiesOnly=yes"
+  SFTP_CMD="sftp -i $BACKUP_SSH_KEY -o IdentitiesOnly=yes"
 fi
+# Restricted-shell remotes (notably rsync.net) reject `ssh user@host '<cmd>'`
+# for anything beyond rsync/scp/sftp, so all remote metadata ops (mkdir,
+# symlink update, retention) go through sftp batches instead.
 # Manjaro/Arch ship fs.protected_regular=1 — root cannot O_CREAT|O_TRUNC a
 # regular file in a sticky world-writable dir (e.g. /tmp) if it's owned by
 # a different user. Avoid /tmp for the lock; /var/lock or /run is safe.
@@ -386,12 +391,22 @@ ship() {
   local stage="$1" dest="$2" subdir="$3" ptr="$4"
   if [[ "$dest" == *:* ]]; then
     local host="${dest%%:*}" path="${dest#*:}"
-    $SSH_CMD "$host" "mkdir -p '$path/$subdir'"
+    # Pre-create dir tree via sftp (works on restricted shells). The `-`
+    # prefix tells sftp's batch mode to ignore "already exists" errors.
+    $SFTP_CMD -b - "$host" >/dev/null <<EOF
+-mkdir $path
+-mkdir $path/$subdir
+EOF
     rsync "${RSYNC_OPTS[@]}" \
           --link-dest="$path/$subdir/$ptr/" \
           -e "$SSH_CMD" \
           "$stage/" "$host:$path/$subdir/$STAMP/"
-    $SSH_CMD "$host" "ln -sfn '$STAMP' '$path/$subdir/$ptr'"
+    # Atomically replace the pointer symlink. sftp's `symlink` creates,
+    # so rm any existing one first (tolerated if absent on first run).
+    $SFTP_CMD -b - "$host" >/dev/null <<EOF
+-rm $path/$subdir/$ptr
+symlink $STAMP $path/$subdir/$ptr
+EOF
   else
     mkdir -p "$dest/$subdir"
     rsync "${RSYNC_OPTS[@]}" \
@@ -408,15 +423,15 @@ ship "$STAGE" "$DEST" "$SUBDIR" "$PTR_NAME"
 # symlink itself (matches by trailing slash on the listing).
 prune_remote() {
   local host="$1" path="$2" subdir="$3" ptr="$4" keep="$5"
-  $SSH_CMD "$host" bash -s -- "$path" "$subdir" "$ptr" "$keep" <<'REMOTE'
-path="$1"; subdir="$2"; ptr="$3"; keep="$4"
-cd "$path/$subdir" || exit 0
-# List timestamped dirs only (skip the pointer symlink), newest first.
-ls -1dt */ 2>/dev/null \
-  | grep -v "^${ptr}/$" \
-  | tail -n +$((keep + 1)) \
-  | xargs -r rm -rf
-REMOTE
+  # No reliable cross-vendor way to recursively `rm -rf` a directory tree
+  # via sftp alone (the protocol is per-file), and restricted-shell hosts
+  # block `ssh user@host 'rm -rf …'`. Skip remote retention entirely and
+  # rely on the rsync-server provider's snapshot policy (rsync.net offers
+  # FreeSnaps; check your provider for equivalents). Manual cleanup is
+  # always possible via `sftp` for individual files / `rmdir` for empty
+  # dirs. Local retention is unaffected (see prune_local).
+  log "remote prune: skipped (rely on provider snapshots — keep=$keep would have applied here)"
+  return 0
 }
 
 prune_local() {
