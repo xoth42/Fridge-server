@@ -1,9 +1,8 @@
 {
   "settings": [
     {
-      "provider": "namecom",
-      "domain": "${DDNS_DOMAIN}",
-      "owner": "${DDNS_OWNER}",
+      "provider": "name.com",
+      "domain": "${DDNS_OWNER}.${DDNS_DOMAIN}",
       "username": "${NAMEDOTCOM_USER}",
       "token": "${NAMEDOTCOM_API_TOKEN}",
       "ttl": 300,
