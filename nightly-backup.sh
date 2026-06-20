@@ -2,32 +2,91 @@
 # =============================================================================
 # nightly-backup.sh — hot backup of the fridge-server compose stack.
 # =============================================================================
-# Discovers Docker named volumes from `docker compose config` and their host
-# paths from `docker volume inspect`. Independent of Docker data-root location.
+# Three modes (selected by flags; see --help):
 #
-# Per-volume strategy:
+#   default (no flags)        nightly hardlink-rotated backup of volumes + repo
+#                             to $BACKUP_DEST/daily/<stamp>/, $BACKUP_DEST/current
+#                             symlink to latest. Designed for fridge-backup.timer.
+#
+#   --data-only               same as default but skip the repo tree. Use when
+#                             the repo is tracked in git and only data needs
+#                             backing up. Still uses $BACKUP_DEST/daily/<stamp>/.
+#
+#   --data-only --push        one-shot data push to $BACKUP_DEST/migration/
+#                             <stamp>/, $BACKUP_DEST/migration/CURRENT symlink
+#                             to latest. Hardlinks dedupe against the previous
+#                             CURRENT so repeat pushes are cheap. Intended for
+#                             feeding a fresh VPS during migration.
+#
+#   --data-only --pull        fetch $BACKUP_DEST/migration/CURRENT/ into the
+#                             local docker volume mountpoints. DESTRUCTIVE:
+#                             stops the local stack, overwrites volume data,
+#                             restarts. The mirror image of --push.
+#
+# Per-volume backup strategy (used for default, --data-only, --push):
 #   prometheus-data   : POST /api/v1/admin/tsdb/snapshot, then rsync snapshot
-#   grafana-data      : sqlite3 .backup grafana.db (online backup API), rsync
+#   grafana-data      : sqlite3 .backup grafana.db (online backup API), rsync;
+#                       mirrors source uid/gid/mode so restore preserves uid 472
 #   alertmanager-data : docker pause -> rsync -> docker unpause
 #   *                 : plain rsync (idempotent / restart-tolerant data)
-# Repo tree (compose dir): rsync, excluding caches and mounted data dirs.
 #
-# Rotation: hardlinked daily snapshots via rsync --link-dest. KEEP_DAILY ago
-# snapshots are pruned. Extend in prune_local() for GFS.
-#
-# Usage:
-#   ./nightly-backup.sh [COMPOSE_DIR] [DEST]
-#   DEST = "/abs/path"  or  "user@host:/abs/path"
-#
-# Env overrides: COMPOSE_DIR, BACKUP_DEST, KEEP_DAILY, LOCK
+# Env overrides:
+#   COMPOSE_DIR, BACKUP_DEST, BACKUP_SSH_KEY, KEEP_DAILY, KEEP_MIGRATION, LOCK
 # =============================================================================
 set -Eeuo pipefail
 shopt -s nullglob
 
+usage() {
+  cat >&2 <<EOF
+Usage:
+  $(basename "$0") [--data-only] [--push|--pull] [COMPOSE_DIR] [DEST]
+  $(basename "$0") --help
+
+Modes:
+  (none)                  nightly hardlink-rotated backup → DEST/daily/<stamp>/
+  --data-only             same, but skip the repo tree
+  --data-only --push      data-only snapshot → DEST/migration/<stamp>/ (+ CURRENT)
+  --data-only --pull      restore DEST/migration/CURRENT/ into local volumes
+
+Args (optional positionals):
+  COMPOSE_DIR   compose dir to back up (default: \$COMPOSE_DIR or /opt/fridge-server)
+  DEST          rsync target — "/abs/path" or "user@host:/abs/path"
+                (default: \$BACKUP_DEST or /var/backups/fridge)
+
+Env:
+  COMPOSE_DIR, BACKUP_DEST, BACKUP_SSH_KEY, KEEP_DAILY, KEEP_MIGRATION, LOCK
+EOF
+}
+
+# ── arg parsing ──────────────────────────────────────────────────────────────
+DATA_ONLY=0
+PUSH=0
+PULL=0
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --data-only) DATA_ONLY=1 ;;
+    --push)      PUSH=1 ;;
+    --pull)      PULL=1 ;;
+    -h|--help)   usage; exit 0 ;;
+    --)          shift; POSITIONAL+=("$@"); break ;;
+    -*)          echo "unknown flag: $1" >&2; usage; exit 2 ;;
+    *)           POSITIONAL+=("$1") ;;
+  esac
+  shift
+done
+set -- "${POSITIONAL[@]}"
+
 COMPOSE_DIR="${1:-${COMPOSE_DIR:-/opt/fridge-server}}"
 DEST="${2:-${BACKUP_DEST:-/var/backups/fridge}}"
 KEEP_DAILY="${KEEP_DAILY:-7}"
+KEEP_MIGRATION="${KEEP_MIGRATION:-3}"
 LOCK="${LOCK:-/var/lock/fridge-backup.lock}"
+
+# Validate flag combinations.
+(( PUSH && !DATA_ONLY )) && { echo "--push requires --data-only" >&2; exit 2; }
+(( PULL && !DATA_ONLY )) && { echo "--pull requires --data-only" >&2; exit 2; }
+(( PUSH && PULL ))       && { echo "--push and --pull are mutually exclusive" >&2; exit 2; }
 
 # Optional SSH identity for a remote $DEST (rsync-over-ssh nightly target).
 # Empty → use root's default ~/.ssh identities. Ignored for a local $DEST.
@@ -57,6 +116,71 @@ for bin in docker rsync jq curl flock; do
 done
 [[ -f "$COMPOSE_DIR/docker-compose.yml" ]] || die "no docker-compose.yml at $COMPOSE_DIR"
 cd "$COMPOSE_DIR"
+
+RSYNC_OPTS=(-aHAX --numeric-ids --delete)
+
+# ── --pull mode (early exit) ─────────────────────────────────────────────────
+# Completely different control flow: stops the local stack, fetches data from
+# the remote CURRENT into local volume mountpoints, restarts the stack. No
+# snapshot, no manifest, no rotation. Discovery uses `docker volume inspect`
+# directly (containers don't have to be running first).
+if (( PULL )); then
+  PROJECT="$(docker compose config --format json | jq -r '.name')"
+  [[ -n "$PROJECT" && "$PROJECT" != "null" ]] || die "compose project name not resolved"
+  log "pull: project=$PROJECT  src=$DEST/migration/CURRENT/  → local volumes"
+
+  # Confirm remote source exists before we tear anything down.
+  if [[ "$DEST" == *:* ]]; then
+    $SSH_CMD "${DEST%%:*}" "test -d '${DEST#*:}/migration/CURRENT'" \
+      || die "remote $DEST/migration/CURRENT/ does not exist (run --push on the source host first)"
+  else
+    [[ -d "$DEST/migration/CURRENT" ]] \
+      || die "local $DEST/migration/CURRENT/ does not exist"
+  fi
+
+  # Ensure volumes exist (idempotent: builds images on first run, creates
+  # the docker volumes empty if absent, does not start containers).
+  log "pull: ensuring volumes exist (docker compose create)"
+  docker compose create >/dev/null
+
+  declare -A PULL_VOL_HOST
+  for vol in prometheus-data grafana-data alertmanager-data caddy_data caddy_config; do
+    dvol="${PROJECT}_${vol}"
+    if ! docker volume inspect "$dvol" >/dev/null 2>&1; then
+      log "skip $vol (no docker volume $dvol — not declared in compose?)"
+      continue
+    fi
+    mp=$(docker volume inspect "$dvol" -f '{{.Mountpoint}}')
+    PULL_VOL_HOST["$vol"]="$mp"
+    log "pull target $vol -> $mp"
+  done
+  [[ ${#PULL_VOL_HOST[@]} -gt 0 ]] || die "pull: no volumes resolved"
+
+  log "pull: stopping stack"
+  docker compose down
+
+  for vol in "${!PULL_VOL_HOST[@]}"; do
+    mp="${PULL_VOL_HOST[$vol]}"
+    src_path="$DEST/migration/CURRENT/volumes/$vol/"
+    log "pull rsync $vol  ($src_path → $mp/)"
+    if [[ "$DEST" == *:* ]]; then
+      host="${DEST%%:*}"; remote_src="${DEST#*:}/migration/CURRENT/volumes/$vol/"
+      rsync "${RSYNC_OPTS[@]}" -e "$SSH_CMD" \
+            "$host:$remote_src" "$mp/" \
+        || die "pull rsync failed for $vol"
+    else
+      [[ -d "$src_path" ]] || { log "skip $vol: $src_path missing in remote snapshot"; continue; }
+      rsync "${RSYNC_OPTS[@]}" "$src_path" "$mp/" \
+        || die "pull rsync failed for $vol"
+    fi
+  done
+
+  log "pull: starting stack"
+  docker compose up -d
+
+  log "pull complete: data restored from $DEST/migration/CURRENT/"
+  exit 0
+fi
 
 # ── discover compose project + named volumes ─────────────────────────────────
 PROJECT="$(docker compose config --format json | jq -r '.name')"
@@ -94,9 +218,8 @@ done
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 STAGE="$(mktemp -d -p "${TMPDIR:-/var/tmp}" fridge-backup.XXXXXX)"
 trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/volumes" "$STAGE/repo"
-
-RSYNC_OPTS=(-aHAX --numeric-ids --delete)
+mkdir -p "$STAGE/volumes"
+(( DATA_ONLY )) || mkdir -p "$STAGE/repo"
 
 # ── per-volume handlers ──────────────────────────────────────────────────────
 quiesce_prometheus() {
@@ -200,19 +323,26 @@ for vol in "${!VOL_HOST[@]}"; do
 done
 
 # ── repo / compose dir (config + .env + scripts) ─────────────────────────────
-log "repo: rsync compose dir"
-rsync "${RSYNC_OPTS[@]}" \
-      --exclude='.git/' \
-      --exclude='__pycache__/' \
-      --exclude='*.pyc' \
-      --exclude='site/' \
-      --exclude='node_modules/' \
-      --exclude='prometheus-data/' \
-      --exclude='grafana-data/' \
-      --exclude='alertmanager-data/' \
-      --exclude='caddy_data/' \
-      --exclude='caddy_config/' \
-      "$COMPOSE_DIR/" "$STAGE/repo/"
+# Skipped under --data-only: the repo is tracked in git on $COMPOSE_DIR, and
+# .env is the only thing not in git — duplicating it into every snapshot is
+# noise once the repo is reproducible from upstream.
+if (( ! DATA_ONLY )); then
+  log "repo: rsync compose dir"
+  rsync "${RSYNC_OPTS[@]}" \
+        --exclude='.git/' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        --exclude='site/' \
+        --exclude='node_modules/' \
+        --exclude='prometheus-data/' \
+        --exclude='grafana-data/' \
+        --exclude='alertmanager-data/' \
+        --exclude='caddy_data/' \
+        --exclude='caddy_config/' \
+        "$COMPOSE_DIR/" "$STAGE/repo/"
+else
+  log "repo: skipped (--data-only)"
+fi
 
 # ── manifest (for sanity on restore) ─────────────────────────────────────────
 {
@@ -236,44 +366,73 @@ rsync "${RSYNC_OPTS[@]}" \
 } > "$STAGE/MANIFEST.txt"
 
 # ── ship with hardlink rotation ──────────────────────────────────────────────
+# Layout differs by mode:
+#   default / --data-only    →  $DEST/daily/<stamp>/    + $DEST/current
+#   --data-only --push       →  $DEST/migration/<stamp>/ + $DEST/migration/CURRENT
+#
+# The "current" / "CURRENT" symlink doubles as the --link-dest for the next
+# run, giving hardlink dedupe of unchanged blocks between runs.
+if (( PUSH )); then
+  SUBDIR="migration"
+  PTR_NAME="CURRENT"
+  KEEP="$KEEP_MIGRATION"
+else
+  SUBDIR="daily"
+  PTR_NAME="current"
+  KEEP="$KEEP_DAILY"
+fi
+
 ship() {
-  local stage="$1" dest="$2"
+  local stage="$1" dest="$2" subdir="$3" ptr="$4"
   if [[ "$dest" == *:* ]]; then
-    # remote
     local host="${dest%%:*}" path="${dest#*:}"
-    $SSH_CMD "$host" "mkdir -p '$path/daily'"
+    $SSH_CMD "$host" "mkdir -p '$path/$subdir'"
     rsync "${RSYNC_OPTS[@]}" \
-          --link-dest="$path/current/" \
+          --link-dest="$path/$subdir/$ptr/" \
           -e "$SSH_CMD" \
-          "$stage/" "$host:$path/daily/$STAMP/"
-    $SSH_CMD "$host" "ln -sfn 'daily/$STAMP' '$path/current'"
+          "$stage/" "$host:$path/$subdir/$STAMP/"
+    $SSH_CMD "$host" "ln -sfn '$STAMP' '$path/$subdir/$ptr'"
   else
-    mkdir -p "$dest/daily"
+    mkdir -p "$dest/$subdir"
     rsync "${RSYNC_OPTS[@]}" \
-          --link-dest="$dest/current/" \
-          "$stage/" "$dest/daily/$STAMP/"
-    ln -sfn "daily/$STAMP" "$dest/current"
+          --link-dest="$dest/$subdir/$ptr/" \
+          "$stage/" "$dest/$subdir/$STAMP/"
+    ln -sfn "$STAMP" "$dest/$subdir/$ptr"
   fi
 }
-log "shipping to $DEST"
-ship "$STAGE" "$DEST"
+log "shipping to $DEST/$SUBDIR/$STAMP  (pointer: $PTR_NAME)"
+ship "$STAGE" "$DEST" "$SUBDIR" "$PTR_NAME"
 
 # ── prune ────────────────────────────────────────────────────────────────────
+# Prune entries under $DEST/$SUBDIR/ beyond $KEEP, skipping the $PTR_NAME
+# symlink itself (matches by trailing slash on the listing).
+prune_remote() {
+  local host="$1" path="$2" subdir="$3" ptr="$4" keep="$5"
+  $SSH_CMD "$host" bash -s -- "$path" "$subdir" "$ptr" "$keep" <<'REMOTE'
+path="$1"; subdir="$2"; ptr="$3"; keep="$4"
+cd "$path/$subdir" || exit 0
+# List timestamped dirs only (skip the pointer symlink), newest first.
+ls -1dt */ 2>/dev/null \
+  | grep -v "^${ptr}/$" \
+  | tail -n +$((keep + 1)) \
+  | xargs -r rm -rf
+REMOTE
+}
+
 prune_local() {
-  local root="$1" keep="$2"
-  # tail -n +K skips the first K-1 entries; we want to delete entries beyond `keep`.
+  local root="$1" subdir="$2" ptr="$3" keep="$4"
+  cd "$root/$subdir" 2>/dev/null || return 0
   # shellcheck disable=SC2012
-  ls -1dt "$root/daily/"*/ 2>/dev/null \
+  ls -1dt */ 2>/dev/null \
+    | grep -v "^${ptr}/$" \
     | tail -n +$((keep + 1)) \
     | xargs -r rm -rf
 }
+
 if [[ "$DEST" == *:* ]]; then
-  $SSH_CMD "${DEST%%:*}" bash -s -- "${DEST#*:}" "$KEEP_DAILY" <<'REMOTE'
-root="$1"; keep="$2"
-ls -1dt "$root/daily/"*/ 2>/dev/null | tail -n +$((keep + 1)) | xargs -r rm -rf
-REMOTE
+  prune_remote "${DEST%%:*}" "${DEST#*:}" "$SUBDIR" "$PTR_NAME" "$KEEP"
 else
-  prune_local "$DEST" "$KEEP_DAILY"
+  prune_local  "$DEST"       "$SUBDIR" "$PTR_NAME" "$KEEP"
 fi
 
 log "backup complete: $STAMP"

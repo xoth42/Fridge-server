@@ -7,14 +7,32 @@ the design rationale, the gotchas that shaped it, and the systemd glue
 that runs it on the production host. Do not let this drift; if the
 script changes, update this doc.
 
-## Scope: nightly only
+## Script modes
 
-This doc is **only** about the recurring backup. The one-time VPS
-relocation is a separate flow with a different endpoint (the new host
-itself, not the backup server), different encryption rules (mandatory
-`age`), and a different runbook — see
-[`vps-migration.md`](vps-migration.md). Both share the same `nightly-backup.sh`
-as the snapshot primitive; everything *around* it differs:
+`nightly-backup.sh` supports three modes selected by flags:
+
+| Invocation | What it does | Where it lands |
+|---|---|---|
+| `nightly-backup.sh` (no flags) | hot snapshot of volumes + repo, hardlink rotated | `$BACKUP_DEST/daily/<stamp>/`, `current` → latest |
+| `nightly-backup.sh --data-only` | same, but skip the repo tree | `$BACKUP_DEST/daily/<stamp>/`, `current` → latest |
+| `nightly-backup.sh --data-only --push` | data-only snapshot for migration handoff | `$BACKUP_DEST/migration/<stamp>/`, `CURRENT` → latest |
+| `nightly-backup.sh --data-only --pull` | **destructive**: stop stack, restore `migration/CURRENT/` into local volumes, restart | local docker volume mountpoints |
+
+`--push` and `--pull` only work with `--data-only` (enforced by arg
+validation). They share the same `$BACKUP_DEST` / `$BACKUP_SSH_KEY`
+endpoint as the nightly run; `migration/` is a sibling subtree to
+`daily/` so nightly rotation never collides with push/pull state.
+
+Retention is split: `$KEEP_DAILY` controls `daily/`, `$KEEP_MIGRATION`
+controls `migration/`. Default 7 vs 3 — pushes are migration-time, not
+periodic, so keep fewer.
+
+## Scope: nightly vs migration
+
+This doc is primarily about the recurring backup. The one-time VPS
+relocation uses the *same* script but different mode (`--push` /
+`--pull`) and lives in [`vps-migration.md`](vps-migration.md). Both
+share the same per-volume hot-quiesce primitives; what differs:
 
 | | Nightly | One-time migration |
 |---|---|---|
@@ -240,6 +258,33 @@ prep on the backup host and the production host:
 If rotating the key, replace both `BACKUP_SSH_KEY` (production) and
 `authorized_keys` (backup host) in one window; the script fails closed
 when the key is unreadable.
+
+### rsync.net specifically
+
+rsync.net runs a restricted account shell (`scponly`-style). Two
+consequences that bite if you're used to a normal sshd:
+
+1. **`ssh-copy-id` silently fails.** Its mechanism is
+   `ssh user@host "cat >> .ssh/authorized_keys"`; the restricted shell
+   refuses that remote command, the upload never happens, but
+   ssh-copy-id reports no error. Use `scp` straight to the file
+   instead:
+   ```
+   scp ~/.ssh/<key>.pub user@<acct>.rsync.net:.ssh/authorized_keys
+   ```
+   For a second key on the same account, fetch + append locally + push
+   back to avoid clobbering the first.
+
+2. **`ssh user@host 'echo ok'` style verification doesn't work** — the
+   restricted shell rejects arbitrary commands. To verify key auth,
+   use one of: plain `ssh -i <key> user@host` (banner shows, then
+   exits), `sftp`, or `rsync --list-only`. The rsync probe is the
+   relevant smoke test since it's the same command channel the nightly
+   script uses.
+
+If `.ssh/` doesn't exist on the account yet, create it via `sftp`
+(`mkdir .ssh; chmod 700 .ssh`) before the first `scp` of
+`authorized_keys`.
 
 ## What the manifest tells you on restore
 

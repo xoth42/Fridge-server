@@ -6,6 +6,38 @@ Manjaro stand-in) to an external VPS. Companion to
 nightly mechanism; this doc covers the one-time relocation that uses
 the same primitives.
 
+## Two paths
+
+There are two ways to move the data, choose based on whether you have a
+shared rsync server reachable from both hosts:
+
+### Path A — rsync server (recommended, much simpler)
+
+If both old and new can reach `$BACKUP_DEST` (the same target the
+nightly timer uses), the whole data transfer is two commands:
+
+```bash
+# [OLD]  Snapshot the volumes hot, push to $BACKUP_DEST/migration/CURRENT/
+sudo -E /usr/local/sbin/nightly-backup.sh --data-only --push
+
+# [NEW]  Stop local stack, pull migration/CURRENT/ into local volumes, restart
+sudo -E /usr/local/sbin/nightly-backup.sh --data-only --pull
+```
+
+The new host needs the repo cloned (via git, not the backup), `.env`
+filled in, and `BACKUP_DEST` / `BACKUP_SSH_KEY` configured so `--pull`
+can reach the rsync server. The whole "DNS-before-Caddy" + "verify
+health endpoints" + "ufw rules" sequence further down still applies —
+only the data-transfer phase is replaced.
+
+### Path B — encrypted tarball (when no shared rsync server)
+
+The original flow: snapshot → tar → `age` encrypt → `scp` to new host →
+decrypt → restore. Sections 1–4 below cover this in detail. Pick this
+if the new host can't reach your backup server (e.g. mid-provisioning
+before networking is sorted), or if the data is small enough that the
+overhead of running a rsync hub isn't worth it.
+
 This runbook is provider-agnostic on purpose. Host OS provisioning and
 VPS choice are out of scope; we resume once the new host has Docker
 Engine + Compose plugin + jq + envsubst + ufw + age + ssh access.
