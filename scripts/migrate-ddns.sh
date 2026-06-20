@@ -148,7 +148,10 @@ fi
 
 # ─── 5. start ddns-updater ───────────────────────────────────────────────────
 step "Start ddns-updater"
-docker compose up -d ddns-updater
+# --remove-orphans cleans up the now-dead fridge-duckdns container if it
+# survived a partial earlier run (compose stop+rm misses anything not
+# referenced by the current compose file).
+docker compose up -d --remove-orphans ddns-updater
 sleep 2
 
 if ! docker ps --format '{{.Names}}' | grep -qx fridge-ddns-updater; then
