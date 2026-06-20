@@ -167,20 +167,24 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # duckdns — keeps zickers-fridge.duckdns.org updated with this server's IP.
-  # name.com fridge.zickers.us has a CNAME → zickers-fridge.duckdns.org.
+  # ddns-updater — keeps $DDNS_OWNER.$DDNS_DOMAIN's A record pointed at this
+  # server's public IP via the name.com API. Replaces the previous DuckDNS
+  # hop; fridge.zickers.us is now a direct A record at name.com.
+  #
+  # Config is rendered from config/ddns-updater/config.json.template by
+  # install.sh and mounted into the container. Provider docs:
+  # https://github.com/qdm12/ddns-updater
   # ---------------------------------------------------------------------------
-  duckdns:
-    image: lscr.io/linuxserver/duckdns:latest
-    container_name: fridge-duckdns
+  ddns-updater:
+    image: qmcgaw/ddns-updater
+    container_name: fridge-ddns-updater
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=America/New_York
-      - SUBDOMAINS=${DUCKDNS_SUBDOMAINS}
-      - TOKEN=${DUCKDNS_TOKEN}
-      - UPDATE_IP=ipv4
-      - LOG_FILE=false
+      - PERIOD=5m
+      - PUBLICIP_FETCHERS=all
+      - HTTP_TIMEOUT=10s
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - ./config/ddns-updater:/updater/data
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------

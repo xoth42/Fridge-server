@@ -117,7 +117,20 @@ envsubst < config/alertmanager/alertmanager.yml.template \
          > config/alertmanager/alertmanager.runtime.yml
 ok "config/alertmanager/alertmanager.runtime.yml generated (untracked)."
 
-# DuckDNS is configured entirely via env vars in docker-compose.yml — no file generation needed.
+# ── ddns-updater ──────────────────────────────────────────────────────────────
+# Renders config.json from the template using NAMEDOTCOM_* + DDNS_* env vars.
+# The container mounts ./config/ddns-updater into /updater/data and reads
+# config.json from there; it also writes updates.json (history) into the
+# same dir, so the path is mode 0755 and the rendered file mode 0600 (token).
+export DDNS_DOMAIN="${DDNS_DOMAIN:-example.com}"
+export DDNS_OWNER="${DDNS_OWNER:-@}"
+export NAMEDOTCOM_USER="${NAMEDOTCOM_USER:-NOTCONFIGURED}"
+export NAMEDOTCOM_API_TOKEN="${NAMEDOTCOM_API_TOKEN:-NOTCONFIGURED}"
+mkdir -p config/ddns-updater
+envsubst < config/ddns-updater/config.json.template \
+         > config/ddns-updater/config.json
+chmod 600 config/ddns-updater/config.json
+ok "config/ddns-updater/config.json generated (untracked)."
 
 # =============================================================================
 # 4. Firewall — restrict Pushgateway to trusted CIDR
