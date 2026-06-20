@@ -178,6 +178,11 @@ services:
   ddns-updater:
     image: qmcgaw/ddns-updater
     container_name: fridge-ddns-updater
+    # Image defaults to uid 1000:1000; the rendered config.json is owned by
+    # whoever ran install.sh / migrate-ddns.sh (root, when run via sudo).
+    # Running the container as root sidesteps the uid mismatch entirely. The
+    # attack surface is minimal — outbound HTTPS to name.com and nothing else.
+    user: "0:0"
     environment:
       - PERIOD=5m
       - PUBLICIP_FETCHERS=all
