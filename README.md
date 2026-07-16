@@ -122,9 +122,15 @@ generated from `config/alertmanager/alertmanager.yml.template` whenever
 
 The custom alert UI lives at `/alerts/`. It signs users in with Grafana
 username/password credentials and sends those credentials to `alert-api` as
-HTTP Basic auth. The API validates credentials against Grafana, then uses the
-installer-managed Grafana service account token to create, delete, disable, and
-route alert rules.
+HTTP Basic auth. The browser keeps that auth header in memory only for the
+current page session (it is not persisted to browser storage). Use an Editor
+account for alert-ui access and reserve admin login for direct Grafana admin
+tasks.
+
+The API validates credentials against Grafana, then uses the installer-managed
+Grafana service account token to create, delete, disable, and route alert
+rules. If this project scope grows, migrate alert-ui auth to backend-managed
+sessions (cookie + server-side session ID) instead of browser-held Basic auth.
 
 `install_alert_ui.sh` maintains the required Grafana service account:
 

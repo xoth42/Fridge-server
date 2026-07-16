@@ -28,6 +28,7 @@
     redir /alerts /alerts/ 308
 
     handle_path /alerts/* {
+        header Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
         root * /srv/alert-ui
         file_server
     }
